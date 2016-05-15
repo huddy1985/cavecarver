@@ -1,4 +1,4 @@
-/home/eiselekd/bin/bin/qemu-system-x86_64 -hda /home/eiselekd/qemu/mlinux.img -m 1024 -net nic -net user -rtc clock=vm,base=1999-12-31 -enable-kvm -qmp unix:/tmp/socket,server,nowait & sleep 5; echo \
+/home/eiselekd/bin/bin/qemu-system-x86_64 -hda linux-tinycore-3.4.img -m 1024 -net nic -net user -rtc clock=vm,base=1999-12-31 -enable-kvm -qmp unix:/tmp/socket,server,nowait & sleep 5; echo \
 '{"execute":"qmp_capabilities"}'\
 '{"execute":"qom-get","arguments":{"path":"/machine/unattached/device[0]","property":"feature-words"},"id":"feature-words"}'\
 '{"execute":"qom-get","arguments":{"path":"/machine/unattached/device[0]","property":"family"},"id":"family"}' \
