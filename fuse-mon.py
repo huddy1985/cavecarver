@@ -9,14 +9,15 @@ import errno
 
 from fuse import FUSE, FuseOSError, Operations
 
-class FileObj():
-    def __init__(self, fh):
-        self.fh = fh
+class wrap():
+    def __init__(self, f):
+        self.fh = f
 
 
 class Passthrough(Operations):
     def __init__(self, root):
         self.root = root
+        self.m = dict()
 
     # Helpers
     # =======
@@ -103,37 +104,47 @@ class Passthrough(Operations):
 
     def open(self, path, flags):
         full_path = self._full_path(path)
-        return FileObj(os.open(full_path, flags))
+        f = os.open(full_path, flags)
+        self.m[f] = full_path;
+        return f
 
     def create(self, path, mode, fi=None):
         full_path = self._full_path(path)
-        return FileObj(os.open(full_path, os.O_WRONLY | os.O_CREAT, mode))
+        f = os.open(full_path, os.O_WRONLY | os.O_CREAT, mode)
+        self.m[f] = full_path;
+        return f
 
-    def read(self, path, length, offset, o):
-        os.lseek(o.fh, offset, os.SEEK_SET)
-        return os.read(o.fh, length)
+    def read(self, path, length, offset, fh):
+        path = self.m[fh]
+        os.lseek(fh, offset, os.SEEK_SET)
+        return os.read(fh, length)
 
-    def write(self, path, buf, offset, o):
-        os.lseek(o.fh, offset, os.SEEK_SET)
-        return os.write(o.fh, buf)
+    def write(self, path, buf, offset, fh):
+        path = self.m[fh]
+        os.lseek(fh, offset, os.SEEK_SET)
+        return os.write(fh, buf)
 
     def truncate(self, path, length, fh=None):
         full_path = self._full_path(path)
         with open(full_path, 'r+') as f:
             f.truncate(length)
 
-    def flush(self, path, o):
-        return os.fsync(o.fh)
+    def flush(self, path, fh):
+        return os.fsync(fh)
 
-    def release(self, path, o):
-        return os.close(o.fh)
+    def release(self, path, fh):
+        try:
+            del self.m[fh]
+        except KeyError:
+            pass
+        return os.close(fh)
 
-    def fsync(self, path, fdatasync, o):
-        return self.flush(path, o.fh)
+    def fsync(self, path, fdatasync, fh):
+        return self.flush(path, fh)
 
 
 def main(mountpoint, root):
-    FUSE(Passthrough(root), mountpoint, nothreads=True, foreground=True)
+    FUSE(Passthrough(root), mountpoint, raw_fi=False, nothreads=True, foreground=True)
 
 if __name__ == '__main__':
     main(sys.argv[2], sys.argv[1])
