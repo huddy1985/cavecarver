@@ -1,4 +1,4 @@
-
+// from http://vxheaven.org/lib/var00.html and http://vxheaven.org/lib/vzo08.html
 // ELF "island" disassembling/infection engine
 
 #define MIN(a,b)                ((a)<(b)?(a):(b))
@@ -331,8 +331,6 @@ PELF_SH CElfHlp::va2sh(DWORD va)
 char *CElfHlp::strtab(PELF_SH sh, int off) {
     return (char*)&buf[ ((PELF_SH)&buf[ hdr->e_shoff + sh->sh_link * hdr->e_shentsize ])->sh_offset + off ];
 }
-
-#include "payload.cpp"
 
 DWORD CElfHlp::GetEntryOffs()
 {

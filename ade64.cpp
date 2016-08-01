@@ -1,4 +1,4 @@
-// from http://vxheaven.org/lib/var00.html and http://vxheaven.org/lib/vzo08.html
+
 // ADE32 2.03c -- advanced 16/32-bit opcode assembler/disassembler engine
 
 // this stuff is used to get instruction length and parse it into
@@ -577,7 +577,7 @@ DWORD ade32_table[512] = {
 
 // ade32_disasm() -- returns opcode length or 0
 
-int ade32_disasm(IN BYTE* opcode0, IN OUT disasm_struct* diza)
+int ade64_disasm(IN BYTE* opcode0, IN OUT disasm_struct* diza)
 {
   BYTE* opcode = opcode0;
 
@@ -745,7 +745,7 @@ repeat_prefix:
 
 // ade32_asm() -- returns assembled opcode length
 
-int ade32_asm(OUT BYTE* opcode, IN OUT disasm_struct* s)
+int ade64_asm(OUT BYTE* opcode, IN OUT disasm_struct* s)
 {
   BYTE* opcode0 = opcode;
 
