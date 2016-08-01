@@ -28,7 +28,8 @@ typedef Elf64_Dyn  ELF_DYN, *PELF_DYN;
 
 #define PAGE_SIZE 4096
 
-#include "ade32.cpp"
+//#include "ade32.cpp"
+#include "ade64.cpp"
 
 // error codes
 
@@ -278,7 +279,7 @@ int CElfHlp::SaveText(char* outfile)
                 flag[i] & (FL_FREE    |FL_FREE_START    ) ? "F" : " " );
         DWORD op_len = 1;
         if (flag[i] & FL_OPCODE)
-            op_len = ade32_disasm(&buf[i], NULL);
+            op_len = ade64_disasm(&buf[i], NULL);
         for(DWORD t=0; t<op_len; t++)
         {
             fprintf(f, " %02X", buf[i+t]);
