@@ -3,6 +3,7 @@
 
 from __future__ import with_statement
 
+import cmd, sys
 import os
 import sys
 import errno
@@ -13,7 +14,12 @@ class wrap():
     def __init__(self, f):
         self.fh = f
 
-
+class FuseShell(cmd.Cmd):    
+    intro = 'Break fuse. Type help or ? to list commands.\n'
+    prompt = '(fuse) '
+    file = None
+    
+        
 class Passthrough(Operations):
     def __init__(self, root):
         self.root = root
@@ -106,6 +112,7 @@ class Passthrough(Operations):
         full_path = self._full_path(path)
         f = os.open(full_path, flags)
         self.m[f] = full_path;
+        print("Open '%s'" %(full_path))
         return f
 
     def create(self, path, mode, fi=None):
@@ -117,6 +124,7 @@ class Passthrough(Operations):
     def read(self, path, length, offset, fh):
         path = self.m[fh]
         os.lseek(fh, offset, os.SEEK_SET)
+        print(" +read '%s' : [%d-%d]" %(path,offset,offset+length))
         return os.read(fh, length)
 
     def write(self, path, buf, offset, fh):
@@ -148,3 +156,5 @@ def main(mountpoint, root):
 
 if __name__ == '__main__':
     main(sys.argv[2], sys.argv[1])
+
+
