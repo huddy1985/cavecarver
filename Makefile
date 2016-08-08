@@ -15,3 +15,15 @@ download:
 
 clean:
 	rm -f reassemble.exe
+
+
+find:
+	@id=`ps -A | grep memcheck-amd64- | awk '{print $$1}'`; \
+	print "Found $$id"; \
+	if [ -z "$${id}" ]; then exit 1; fi; \
+	python m.py $$id;
+	-for f in `ls *.data`; do \
+		if xxd -p $$f | tr -d '\n' | grep -c 'a4063e881916d40eec1b83ada255623f'; then\
+			echo $$f; \
+		fi; \
+	done
