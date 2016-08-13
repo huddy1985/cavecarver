@@ -63,3 +63,19 @@ probe syscall.close {
   delete filehandles[pid(), $fd]
   delete time_io[pid(),$fd]
 }
+
+probe kprocess.create {
+  printf("%-25s: %s (%d:%d) created %d:%d\n",
+	 ctime(gettimeofday_s()), execname(), pid(), tid(), new_pid, new_tid)
+}
+
+probe kprocess.exec {
+  printf("%-25s: %s (%d) is exec'ing %s\n",
+	 ctime(gettimeofday_s()), execname(), pid(), filename)
+}
+
+probe nd_syscall.execve.return
+{
+  printf("%-24s %6d %6d %6d %14s %s\n", ctime(gettimeofday_s()), uid(),
+	 ppid(), pid(), execname(), cmdline_str());
+}
