@@ -1,0 +1,65 @@
+#! /usr/bin/env stap
+
+global start
+global time_io
+
+function timestamp:long() { return gettimeofday_us() - start }
+
+function proc:string() { return sprintf("%d (%s)", pid(), execname()) }
+
+probe begin { start = gettimeofday_us() }
+
+global filehandles, fileread, filewrite
+
+probe syscall.open.return {
+  filename = user_string($filename)
+  if ($return != -1) {
+    if (execname() == "eperlcmd")  {
+      printf("%s => %d\n", filename, $return)
+    }
+    filehandles[pid(), $return] = filename
+  } else {
+    printf("%d %s access %s fail\n", timestamp(), proc(), filename)
+  }
+}
+
+probe syscall.read.return {
+  p = pid()
+  fd = $fd
+  bytes = $return
+  time = gettimeofday_us() - @entry(gettimeofday_us())
+  if (bytes > 0)
+    fileread[p, fd] += bytes
+  time_io[p, fd] <<< time
+
+  if (execname() == "eperlcmd")  {
+    printf("%d read from %d\n", bytes, fd)
+    print_usyms(ubacktrace())
+  }
+  
+}
+
+probe syscall.write.return {
+  p = pid()
+  fd = $fd
+  bytes = $return
+  time =  gettimeofday_us() - @entry(gettimeofday_us())
+  if (bytes > 0)
+    filewrite[p, fd] += bytes
+  time_io[p, fd] <<< time
+}
+
+probe syscall.close {
+  if ([pid(), $fd] in filehandles) {
+    printf("%d %s access %s read: %d write: %d\n",
+           timestamp(), proc(), filehandles[pid(), $fd],
+           fileread[pid(), $fd], filewrite[pid(), $fd])
+    if (@count(time_io[pid(), $fd]))
+      printf("%d %s iotime %s time: %d\n",  timestamp(), proc(),
+             filehandles[pid(), $fd], @sum(time_io[pid(), $fd]))
+   }
+  delete fileread[pid(), $fd]
+  delete filewrite[pid(), $fd]
+  delete filehandles[pid(), $fd]
+  delete time_io[pid(),$fd]
+}
