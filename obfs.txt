@@ -11,3 +11,12 @@ apt-get install python3
  server-port = 7900
 - modify standalone_server_config.ini [common]:
  forward = 127.0.0.1:<port>
+
+###########
+iptables -F
+iptables -P INPUT DROP
+iptables -A INPUT -i lo -p all -j ACCEPT
+iptables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+iptables -A INPUT -p tcp -m tcp --dport <port> -j ACCEPT
+iptables -A INPUT -j DROP
+###########
