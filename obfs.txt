@@ -1,0 +1,13 @@
+apt-get install golang
+export GOPATH=${HOME}/go-w
+go get git.torproject.org/pluggable-transports/obfs4.git/obfs4proxy
+cp ${HOME}/go-w/bin/obfs4proxy .
+
+apt-get install python3
+- modify standalone_client_config.ini [obfs4-client1]:
+ listen-addr = 127.0.0.1
+ listen-port = 8000 
+ server-addr = <remote-server-addr>
+ server-port = 7900
+- modify standalone_server_config.ini [common]:
+ forward = 127.0.0.1:<port>
