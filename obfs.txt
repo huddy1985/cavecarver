@@ -20,3 +20,11 @@ iptables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
 iptables -A INPUT -p tcp -m tcp --dport <port> -j ACCEPT
 iptables -A INPUT -j DROP
 ###########
+
+#!/bin/sh
+cd ~/git/pluggabletransportadapter;
+ps -A f > /tmp/ps.txt
+if  ! cat /tmp/ps.txt | grep "standalone_client.py" > /dev/null ; then  
+    python3 standalone_client.py -v standalone_client_config.ini &
+fi
+echo "ssh -p 8000 eiselekd@127.0.0.1"
