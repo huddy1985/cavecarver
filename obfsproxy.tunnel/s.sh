@@ -1,5 +1,6 @@
 #!/bin/bash
-. ${HOME}/.o/p.sh
+if [ -z "${CFG}" ]; then echo "Specify CFG to use"; exit 1; fi
+. ${HOME}/.o/${CFG}.sh
 d=`dirname $(realpath $0)`
 cat ${d}/standalone_server_config.ini          | \
     sed -e "s:--server--:${server}:g "         | \
