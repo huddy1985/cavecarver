@@ -9,3 +9,5 @@ fakeroot debian/rules clean; \
 DEB_BUILD_OPTIONS=parallel=4 AUTOBUILD=1 NOEXTRAS=1 fakeroot debian/rules binary-generic binary
 
 export DEB_BUILD_OPTIONS="debug nostrip noopt"
+dpkg-buildpackage -rfakeroot -b
+
