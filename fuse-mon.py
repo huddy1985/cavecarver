@@ -152,7 +152,7 @@ class Passthrough(Operations):
 
 
 def main(mountpoint, root):
-    FUSE(Passthrough(root), mountpoint, raw_fi=False, nothreads=True, foreground=True)
+    FUSE(Passthrough(root), mountpoint, raw_fi=False, nothreads=True, foreground=True )
 
 if __name__ == '__main__':
     main(sys.argv[2], sys.argv[1])
