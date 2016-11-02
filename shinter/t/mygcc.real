@@ -1,0 +1,8 @@
+#!/bin/bash
+while getopts o: flag; do
+  case $flag in
+    o)
+      eval "touch $OPTARG"
+      ;;
+  esac
+done

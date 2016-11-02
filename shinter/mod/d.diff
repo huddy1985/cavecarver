@@ -1,0 +1,32 @@
+diff --git a/arch/x86/entry/syscall_64.c b/arch/x86/entry/syscall_64.c
+index 9dbc5ab..69b4ad0 100644
+--- a/arch/x86/entry/syscall_64.c
++++ b/arch/x86/entry/syscall_64.c
+@@ -17,7 +17,7 @@
+ 
+ extern long sys_ni_syscall(unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long);
+ 
+-asmlinkage const sys_call_ptr_t sys_call_table[__NR_syscall_max+1] = {
++asmlinkage sys_call_ptr_t sys_call_table[__NR_syscall_max+1] = {
+ 	/*
+ 	 * Smells like a compiler bug -- it doesn't work
+ 	 * when the & below is removed.
+@@ -25,3 +25,5 @@ asmlinkage const sys_call_ptr_t sys_call_table[__NR_syscall_max+1] = {
+ 	[0 ... __NR_syscall_max] = &sys_ni_syscall,
+ #include <asm/syscalls_64.h>
+ };
++
++EXPORT_SYMBOL_GPL(sys_call_table);
+diff --git a/arch/x86/include/asm/syscall.h b/arch/x86/include/asm/syscall.h
+index 999b7cd..1ec903e 100644
+--- a/arch/x86/include/asm/syscall.h
++++ b/arch/x86/include/asm/syscall.h
+@@ -23,7 +23,7 @@
+ typedef asmlinkage long (*sys_call_ptr_t)(unsigned long, unsigned long,
+ 					  unsigned long, unsigned long,
+ 					  unsigned long, unsigned long);
+-extern const sys_call_ptr_t sys_call_table[];
++extern sys_call_ptr_t sys_call_table[];
+ 
+ #if defined(CONFIG_X86_32)
+ #define ia32_sys_call_table sys_call_table
