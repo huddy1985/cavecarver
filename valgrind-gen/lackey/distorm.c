@@ -10,13 +10,13 @@ This library is licensed under the BSD license. See the file COPYING.
 */
 
 
-#include "../include/distorm.h"
+#include "distorm.h"
 #include "config.h"
 #include "decoder.h"
 #include "x86defs.h"
 #include "textdefs.h"
 #include "wstring.h"
-#include "../include/mnemonics.h"
+#include "mnemonics.h"
 
 /* C DLL EXPORTS */
 #ifdef SUPPORT_64BIT_OFFSET

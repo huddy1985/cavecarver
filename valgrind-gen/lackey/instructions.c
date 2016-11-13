@@ -14,7 +14,7 @@ This library is licensed under the BSD license. See the file COPYING.
 #include "insts.h"
 #include "prefix.h"
 #include "x86defs.h"
-#include "../include/mnemonics.h"
+#include "mnemonics.h"
 
 
 /* Helper macros to extract the type or index from an inst-node value. */
@@ -398,7 +398,7 @@ _InstInfo* inst_lookup(_CodeInfo* ci, _PrefixState* ps)
 				if (rex & PREFIX_EX_W) ps->usedPrefixes |= INST_PRE_REX;
 				if ((ci->dt != Decode64Bits) || (~rex & PREFIX_EX_B)) return &II_NOP;
 			break;
-			
+
 			case INST_LEA_INDEX:
 				/* Ignore segment override prefixes for LEA instruction. */
 				ps->decodedPrefixes &= ~INST_PRE_SEGOVRD_MASK;
@@ -416,7 +416,7 @@ _InstInfo* inst_lookup(_CodeInfo* ci, _PrefixState* ps)
 	ci->codeLen -= 1;
 	if (ci->codeLen < 0) return NULL;
 	tmpIndex1 = *ci->code;
-	
+
 	/* Try single byte instruction + reg bits (OCST_13BYTES). */
 	if ((instType == INT_LIST_GROUP) && (!isWaitIncluded)) return inst_get_info(in, (tmpIndex1 >> 3) & 7);
 
@@ -525,7 +525,7 @@ _InstInfo* inst_lookup(_CodeInfo* ci, _PrefixState* ps)
 		 * hence we don't override 'in', cause we might still need it.
 		 */
 		instType = INST_NODE_TYPE(in2);
-		
+
 		if (instType == INT_INFO) ii = &InstInfos[INST_NODE_INDEX(in2)];
 		else if (instType == INT_INFOEX) ii = (_InstInfo*)&InstInfosEx[INST_NODE_INDEX(in2)];
 

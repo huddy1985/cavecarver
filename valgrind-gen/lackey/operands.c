@@ -13,7 +13,7 @@ This library is licensed under the BSD license. See the file COPYING.
 #include "operands.h"
 #include "x86defs.h"
 #include "insts.h"
-#include "../include/mnemonics.h"
+#include "mnemonics.h"
 
 
 /* Maps a register to its register-class mask. */
@@ -967,7 +967,7 @@ int operands_extract(_CodeInfo* ci, _DInst* di, _InstInfo* ii,
 				operands_set_ts(op, O_PTR, 32);
 				di->imm.ptr.off = RULONG(ci->code); /* Read 32bits offset this time. */
 				di->imm.ptr.seg = RUSHORT((ci->code + sizeof(int32_t))); /* And read segment, 16 bits. */
-				
+
 				ci->code += sizeof(int32_t) + sizeof(int16_t);
 			}
 		break;
@@ -1019,7 +1019,7 @@ int operands_extract(_CodeInfo* ci, _DInst* di, _InstInfo* ii,
 			prefixes_use_segment(INST_PRE_DS, ps, ci->dt, di);
 
 			/*
-			 * Just a pointer to a BYTE, WORD, DWORD, QWORD. Works only with ACC8/16/32/64 respectively. 
+			 * Just a pointer to a BYTE, WORD, DWORD, QWORD. Works only with ACC8/16/32/64 respectively.
 			 * MOV [0x1234], AL ; MOV AX, [0x1234] ; MOV EAX, [0x1234], note that R/E/AX will be chosen by OT_ACC_FULL.
 			 */
 			if (effAdrSz == Decode16Bits) {
@@ -1272,7 +1272,7 @@ int operands_extract(_CodeInfo* ci, _DInst* di, _InstInfo* ii,
 		break;
 		case OT_VYXMM:
 			if (ps->vrex & PREFIX_EX_L) operands_set_tsi(op, O_REG, 256, AVXREGS_BASE + vexV);
-			else operands_set_tsi(op, O_REG, 128, SSEREGS_BASE + vexV); 
+			else operands_set_tsi(op, O_REG, 128, SSEREGS_BASE + vexV);
 		break;
 		case OT_WREG32_64:
 			if (vrex & PREFIX_EX_R) reg += EX_GPR_BASE;

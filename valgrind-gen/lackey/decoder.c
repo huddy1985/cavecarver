@@ -16,7 +16,7 @@ This library is licensed under the BSD license. See the file COPYING.
 #include "x86defs.h"
 #include "operands.h"
 #include "insts.h"
-#include "../include/mnemonics.h"
+#include "mnemonics.h"
 
 
 /* Instruction Prefixes - Opcode - ModR/M - SIB - Displacement - Immediate */
@@ -195,7 +195,7 @@ static _DecodeResult decode_inst(_CodeInfo* ci, _PrefixState* ps, _DInst* di)
 		if (instFlags & INST_USE_OP3) {
 			if (!operands_extract(ci, di, ii, instFlags, (_OpType)((_InstInfoEx*)ii)->op3, ONT_3, modrm, ps, effOpSz, effAdrSz, NULL)) goto _Undecodable;
 		} else break;
-		
+
 		/* Support for a fourth operand is added for (i.e:) INSERTQ instruction. */
 		if (instFlags & INST_USE_OP4) {
 			if (!operands_extract(ci, di, ii, instFlags, (_OpType)((_InstInfoEx*)ii)->op4, ONT_4, modrm, ps, effOpSz, effAdrSz, NULL)) goto _Undecodable;

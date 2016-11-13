@@ -13,7 +13,7 @@ This library is licensed under the BSD license. See the file COPYING.
 
 #include "x86defs.h"
 #include "instructions.h"
-#include "../include/mnemonics.h"
+#include "mnemonics.h"
 
 
 /*

@@ -9,7 +9,7 @@ This library is licensed under the BSD license. See the file COPYING.
 */
 
 
-#include "../include/mnemonics.h"
+#include "mnemonics.h"
 
 #ifndef DISTORM_LIGHT
 
