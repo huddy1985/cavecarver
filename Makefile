@@ -27,3 +27,13 @@ find:
 			echo $$f; \
 		fi; \
 	done
+
+
+di:
+	cd distorm; make
+
+vb:
+	cd valgrind-gen; bash  autogen.sh; ./configure --prefix=$(HOME)/bin-valgrind
+
+vc:
+	cd valgrind-gen; make; make install

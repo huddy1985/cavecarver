@@ -11,7 +11,7 @@ if VGCONF_HAVE_PLATFORM_SEC
 noinst_PROGRAMS += lackey-@VGCONF_ARCH_SEC@-@VGCONF_OS@
 endif
 
-LACKEY_SOURCES_COMMON = lk_main.c
+LACKEY_SOURCES_COMMON = lk_main.c decoder.c distorm.c instructions.c insts.c mnemonics.c operands.c prefix.c textdefs.c wstring.c
 
 lackey_@VGCONF_ARCH_PRI@_@VGCONF_OS@_SOURCES      = \
 	$(LACKEY_SOURCES_COMMON)
