@@ -508,7 +508,7 @@ static VG_REGPARM(2) void trace_instr(Addr addr, SizeT size)
 
     res = distorm_decode(addr, (const unsigned char*)(uint8_t*)addr, addr+size, Decode64Bits, decodedInstructions, 1, &decodedInstructionsCount);
 
-    VG_(printf)("I  %llx %-24s %s%s%s\r\n", decodedInstructions[0].offset,
+    VG_(printf)("I  %llx %-24s %s%s%s\r\n", (long long)decodedInstructions[0].offset,
 	   (char*)decodedInstructions[0].instructionHex.p,
 	   (char*)decodedInstructions[0].mnemonic.p, decodedInstructions[0].operands.length != 0 ? " " : "",
 	   (char*)decodedInstructions[0].operands.p);
@@ -708,6 +708,79 @@ static void lk_post_clo_init(void)
    }
 }
 
+/* /\* add stmt to a bb *\/ */
+/* static inline void stmt ( HChar cat, MCEnv* mce, IRStmt* st ) { //385 */
+/*    if (mce->trace) { */
+/*       VG_(printf)("  %c: ", cat); */
+/*       ppIRStmt(st); */
+/*       VG_(printf)("\n"); */
+/*    } */
+/*    addStmtToIRSB(mce->sb, st); */
+/* } */
+
+/* /\* assign value to tmp *\/ */
+/* static inline */
+/* void assign ( HChar cat, MCEnv* mce, IRTemp tmp, IRExpr* expr ) { */
+/*    stmt(cat, mce, IRStmt_WrTmp(tmp,expr)); */
+/* } */
+
+
+/* IRDirty* create_dirty_BINOP( MCEnv* mce, IRStmt *clone, */
+/*                              IRTemp tmp, IROp op, */
+/*                              IRExpr* arg1, IRExpr* arg2 ){ */
+/* // ppIRStmt output:  t<tmp> = op( arg1, arg2 ) */
+/*    Int      nargs = 3; */
+/*    const HChar*   nm; */
+/*    void*    fn; */
+/*    IRExpr** args; */
+
+/*    // Iop_INVALID = 0x1400 */
+/*    //if ( arg1->tag == Iex_Const && arg2->tag == Iex_Const )  return NULL; */
+/*       //return create_dirty_WRTMP_const(mce, clone, tmp); */
+
+/*    args  = mkIRExprVec_3( mkIRExpr_HWord((HWord)clone), */
+/*            convert_Value( mce, IRExpr_RdTmp( tmp ) ), */
+/*            convert_Value( mce, atom2vbits( mce, IRExpr_RdTmp( tmp ) ) ) ); */
+
+/*    if ( mce->hWordTy == Ity_I32 ){ */
+/*       if ( arg1->tag == Iex_RdTmp && arg2->tag == Iex_Const ) { */
+/*          fn = &TNT_(h32_binop_tc); */
+/*          nm = "TNT_(h32_binop_tc)"; */
+/*       } else if ( arg1->tag == Iex_Const && arg2->tag == Iex_RdTmp ) { */
+/*          fn = &TNT_(h32_binop_ct); */
+/*          nm = "TNT_(h32_binop_ct)"; */
+/*       } else if ( arg1->tag == Iex_Const && arg2->tag == Iex_Const ) { */
+/*          fn = &TNT_(h32_binop_cc); */
+/*          nm = "TNT_(h32_binop_cc)"; */
+/*       } else if ( arg1->tag == Iex_RdTmp && arg2->tag == Iex_RdTmp ) { */
+/*          fn = &TNT_(h32_binop_tt); */
+/*          nm = "TNT_(h32_binop_tt)"; */
+/*       } else { */
+/*          VG_(tool_panic)("tnt_translate.c: create_dirty_BINOP"); */
+/*       } */
+/*    }else if( mce->hWordTy == Ity_I64 ){ */
+/*       if ( arg1->tag == Iex_RdTmp && arg2->tag == Iex_Const ) { */
+/*          fn = &TNT_(h64_binop_tc); */
+/*          nm = "TNT_(h64_binop_tc)"; */
+/*       } else if ( arg1->tag == Iex_Const && arg2->tag == Iex_RdTmp ) { */
+/*          fn = &TNT_(h64_binop_ct); */
+/*          nm = "TNT_(h64_binop_ct)"; */
+/*       } else if ( arg1->tag == Iex_Const && arg2->tag == Iex_Const ) { */
+/*          fn = &TNT_(h64_binop_cc); */
+/*          nm = "TNT_(h64_binop_cc)"; */
+/*       } else if ( arg1->tag == Iex_RdTmp && arg2->tag == Iex_RdTmp ) { */
+/*          fn = &TNT_(h64_binop_tt); */
+/*          nm = "TNT_(h64_binop_tt)"; */
+/*       } else { */
+/*          VG_(tool_panic)("tnt_translate.c: create_dirty_BINOP"); */
+/*       } */
+/*    }else */
+/*       VG_(tool_panic)("tnt_translate.c: create_dirty_BINOP: Unknown platform"); */
+
+/*    return unsafeIRDirty_0_N ( nargs/\*regparms*\/, nm, VG_(fnptr_to_fnentry)( fn ), args ); */
+/* } */
+
+
 static
 IRSB* lk_instrument ( VgCallbackClosure* closure,
                       IRSB* sbIn,
@@ -833,6 +906,14 @@ IRSB* lk_instrument ( VgCallbackClosure* closure,
             // Add a call to trace_load() if --trace-mem=yes.
             if (clo_trace_mem) {
                IRExpr* data = st->Ist.WrTmp.data;
+
+	       switch( data->tag ){
+	       case Iex_Binop:
+		 //data->Iex.Binop.op,
+		 //data->Iex.Binop.arg1, data->Iex.Binop.arg2
+		 break;
+	       }
+
                if (data->tag == Iex_Load) {
                   addEvent_Dr( sbOut, data->Iex.Load.addr,
                                sizeofIRType(data->Iex.Load.ty) );

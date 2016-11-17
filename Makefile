@@ -37,3 +37,7 @@ vb:
 
 vc:
 	cd valgrind-gen; make; make install
+
+tags:
+	cd valgrind-gen; rm GPATH GRTAGS GTAGS
+	cd valgrind-gen; find include VEX/pub VEX coregrind lackey taintgrind  -type f | grep -e '.c$$\|.h$$' | gtags -i -f -
