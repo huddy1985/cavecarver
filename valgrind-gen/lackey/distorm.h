@@ -285,7 +285,7 @@ typedef struct {
 #define RM_CX 2     /* CL, CH, CX, ECX, RCX */
 #define RM_DX 4     /* DL, DH, DX, EDX, RDX */
 #define RM_BX 8     /* BL, BH, BX, EBX, RBX */
-#define RM_SP 0x10  /* SPL, SP, ESP, RSP */ 
+#define RM_SP 0x10  /* SPL, SP, ESP, RSP */
 #define RM_BP 0x20  /* BPL, BP, EBP, RBP */
 #define RM_SI 0x40  /* SIL, SI, ESI, RSI */
 #define RM_DI 0x80  /* DIL, DI, EDI, RDI */
@@ -431,7 +431,7 @@ typedef enum { DECRES_NONE, DECRES_SUCCESS, DECRES_MEMORYERR, DECRES_INPUTERR, D
  * Notes:  1)The minimal size of maxInstructions is 15.
  *         2)You will have to synchronize the offset,code and length by yourself if you pass code fragments and not a complete code block!
  */
- 
+
 /* distorm_decompose
  * See more documentation online at the GitHub project's wiki.
  *
@@ -471,7 +471,7 @@ typedef enum { DECRES_NONE, DECRES_SUCCESS, DECRES_MEMORYERR, DECRES_INPUTERR, D
  *
  * Output: unsigned int - version of compiled library.
  */
-unsigned int distorm_version();
+unsigned int distorm_version(void);
 
 #endif /* DISTORM_STATIC */
 

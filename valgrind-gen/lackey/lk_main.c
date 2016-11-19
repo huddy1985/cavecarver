@@ -201,7 +201,11 @@
 
 #include <sys/syscall.h>
 
+#include "valgrind.h"
 #include "distorm.h"
+#include "copy.h"
+
+#define LK_(str)    VGAPPEND(vgLackey_,str)
 
 /*------------------------------------------------------------*/
 /*--- Command line options                                 ---*/
@@ -213,6 +217,7 @@ static Bool clo_basic_counts    = True;
 static Bool clo_detailed_counts = False;
 static Bool clo_trace_mem       = False;
 static Bool clo_trace_sbs       = False;
+static Int  clo_trace_match     = False;
 
 /* The name of the function of which the number of calls (under
  * --basic-counts=yes) is to be counted, with default. Override with command
@@ -226,6 +231,7 @@ static Bool lk_process_cmd_line_option(const HChar* arg)
    else if VG_BOOL_CLO(arg, "--detailed-counts",   clo_detailed_counts) {}
    else if VG_BOOL_CLO(arg, "--trace-mem",         clo_trace_mem) {}
    else if VG_BOOL_CLO(arg, "--trace-superblocks", clo_trace_sbs) {}
+   else if VG_BHEX_CLO(arg, "--trace-match", clo_trace_match, 0x0000, 0xffffffff) {}
    else
       return False;
 
@@ -243,6 +249,7 @@ static void lk_print_usage(void)
 "    --trace-superblocks=no|yes  trace all superblock entries [no]\n"
 "    --fnname=<name>           count calls to <name> (only used if\n"
 "                              --basic-count=yes)  [main]\n"
+"    --trace-match=0x<val>     match for a binop result\n"
    );
 }
 
@@ -708,77 +715,172 @@ static void lk_post_clo_init(void)
    }
 }
 
-/* /\* add stmt to a bb *\/ */
-/* static inline void stmt ( HChar cat, MCEnv* mce, IRStmt* st ) { //385 */
-/*    if (mce->trace) { */
-/*       VG_(printf)("  %c: ", cat); */
-/*       ppIRStmt(st); */
-/*       VG_(printf)("\n"); */
-/*    } */
-/*    addStmtToIRSB(mce->sb, st); */
-/* } */
+/* vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv */
+/****************************************************************/
+/*************** taintgrind copy ********************************/
+typedef
+struct _LCEnv {
+  IRSB* sb;
+  int trace;
+  IRType hWordTy;
+} LCEnv;
 
-/* /\* assign value to tmp *\/ */
-/* static inline */
-/* void assign ( HChar cat, MCEnv* mce, IRTemp tmp, IRExpr* expr ) { */
-/*    stmt(cat, mce, IRStmt_WrTmp(tmp,expr)); */
-/* } */
+/* add stmt to a bb */
+static inline void stmt ( HChar cat, LCEnv* mce, IRStmt* st ) { //385
+   if (mce->trace) {
+      VG_(printf)("  %c: ", cat);
+      ppIRStmt(st);
+      VG_(printf)("\n");
+   }
+   addStmtToIRSB(mce->sb, st);
+}
+
+/* assign value to tmp */
+static inline
+void assign ( HChar cat, LCEnv* mce, IRTemp tmp, IRExpr* expr ) {
+   stmt(cat, mce, IRStmt_WrTmp(tmp,expr));
+}
+
+/* build various kinds of expressions *///400
+#define triop(_op, _arg1, _arg2, _arg3) \
+                                 IRExpr_Triop((_op),(_arg1),(_arg2),(_arg3))
+#define binop(_op, _arg1, _arg2) IRExpr_Binop((_op),(_arg1),(_arg2))
+#define unop(_op, _arg)          IRExpr_Unop((_op),(_arg))
+#define mkU1(_n)                 IRExpr_Const(IRConst_U1(_n))
+#define mkU8(_n)                 IRExpr_Const(IRConst_U8(_n))
+#define mkU16(_n)                IRExpr_Const(IRConst_U16(_n))
+#define mkU32(_n)                IRExpr_Const(IRConst_U32(_n))
+#define mkU64(_n)                IRExpr_Const(IRConst_U64(_n))
+#define mkV128(_n)               IRExpr_Const(IRConst_V128(_n))
+#define mkexpr(_tmp)             IRExpr_RdTmp((_tmp))
+
+/* Bind the given expression to a new temporary, and return the
+   temporary.  This effectively converts an arbitrary expression into
+   an atom.
+
+   'ty' is the type of 'e' and hence the type that the new temporary
+   needs to be.  But passing it in is redundant, since we can deduce
+   the type merely by inspecting 'e'.  So at least use that fact to
+   assert that the two types agree. */
+static IRAtom* assignNew ( HChar cat, LCEnv* mce, IRType ty, IRExpr* e ) //418
+{
+   IRTemp   t;
+   IRType   tyE = typeOfIRExpr(mce->sb->tyenv, e);
+   tl_assert(tyE == ty); /* so 'ty' is redundant (!) */
+   t = newIRTemp(mce->sb->tyenv, ty);
+   //t = newTemp(mce, ty, k);
+   assign(cat, mce, t, e);
+   return mkexpr(t);
+}
+
+static IRExpr* convert_Value( LCEnv* mce, IRAtom* value ){
+   IRType ty = typeOfIRExpr(mce->sb->tyenv, value);
+   IRType tyH = mce->hWordTy;
+   //   IRExpr* e;
+   if(tyH == Ity_I32){
+      switch( ty ){
+      case Ity_I1:
+         return assignNew( 'C', mce, tyH, unop(Iop_1Uto32, value) );
+      case Ity_I8:
+         return assignNew( 'C', mce, tyH, unop(Iop_8Uto32, value) );
+      case Ity_I16:
+         return assignNew( 'C', mce, tyH, unop(Iop_16Uto32, value) );
+      case Ity_I32:
+         return value;
+      case Ity_I64:
+         return assignNew( 'C', mce, tyH, unop(Iop_64to32, value) );
+      case Ity_F32:
+         return assignNew( 'C', mce, tyH, unop(Iop_ReinterpF32asI32, value) );
+      case Ity_F64:
+         return assignNew( 'C', mce, tyH, unop(Iop_64to32,
+            assignNew( 'C', mce, Ity_I64, unop(Iop_ReinterpF64asI64, value) ) ) );
+      case Ity_V128:
+         return assignNew( 'C', mce, tyH, unop(Iop_V128to32, value) );
+      default:
+         ppIRType(ty);
+         VG_(tool_panic)("tnt_translate.c: convert_Value");
+      }
+   }else if(tyH == Ity_I64){
+      switch( ty ){
+      case Ity_I1:
+         return assignNew( 'C', mce, tyH, unop(Iop_1Uto64, value) );
+      case Ity_I8:
+         return assignNew( 'C', mce, tyH, unop(Iop_8Uto64, value) );
+      case Ity_I16:
+         return assignNew( 'C', mce, tyH, unop(Iop_16Uto64, value) );
+      case Ity_I32:
+         return assignNew( 'C', mce, tyH, unop(Iop_32Uto64, value) );
+      case Ity_I64:
+         return value;
+      case Ity_I128:
+         return assignNew( 'C', mce, tyH, unop(Iop_128to64, value) );
+      case Ity_F32:
+         return assignNew( 'C', mce, tyH, unop(Iop_ReinterpF64asI64,
+              assignNew( 'C', mce, Ity_F64, unop(Iop_F32toF64, value) ) ) );
+      case Ity_F64:
+         return assignNew( 'C', mce, tyH, unop(Iop_ReinterpF64asI64, value) );
+      case Ity_V128:
+         return assignNew( 'C', mce, tyH, unop(Iop_V128to64, value) );
+      case Ity_V256:
+         // Warning: Only copies the least significant 64 bits, so there's info lost
+         return assignNew( 'C', mce, tyH, unop(Iop_V256to64_0, value) );
+      default:
+         ppIRType(ty);
+         VG_(tool_panic)("tnt_translate.c: convert_Value");
+      }
+   }else{
+         ppIRType(tyH);
+         VG_(tool_panic)("tnt_translate.c: convert_Value");
+   }
+}
 
 
-/* IRDirty* create_dirty_BINOP( MCEnv* mce, IRStmt *clone, */
-/*                              IRTemp tmp, IROp op, */
-/*                              IRExpr* arg1, IRExpr* arg2 ){ */
-/* // ppIRStmt output:  t<tmp> = op( arg1, arg2 ) */
-/*    Int      nargs = 3; */
-/*    const HChar*   nm; */
-/*    void*    fn; */
-/*    IRExpr** args; */
+static
+VG_REGPARM(3) void LK_(h32_binop_tc) ( IRStmt *stmt, UInt a , UInt b )
+{
+  VG_(printf)(".");
+}
 
-/*    // Iop_INVALID = 0x1400 */
-/*    //if ( arg1->tag == Iex_Const && arg2->tag == Iex_Const )  return NULL; */
-/*       //return create_dirty_WRTMP_const(mce, clone, tmp); */
+static
+VG_REGPARM(3) void LK_(h32_binop_ct) ( IRStmt *stmt, UInt a , UInt b )
+{
+}
 
-/*    args  = mkIRExprVec_3( mkIRExpr_HWord((HWord)clone), */
-/*            convert_Value( mce, IRExpr_RdTmp( tmp ) ), */
-/*            convert_Value( mce, atom2vbits( mce, IRExpr_RdTmp( tmp ) ) ) ); */
+static
+VG_REGPARM(3) void LK_(h32_binop_tt) ( IRStmt *stmt, UInt a , UInt b )
+{
+  VG_(printf)(".");
+}
 
-/*    if ( mce->hWordTy == Ity_I32 ){ */
-/*       if ( arg1->tag == Iex_RdTmp && arg2->tag == Iex_Const ) { */
-/*          fn = &TNT_(h32_binop_tc); */
-/*          nm = "TNT_(h32_binop_tc)"; */
-/*       } else if ( arg1->tag == Iex_Const && arg2->tag == Iex_RdTmp ) { */
-/*          fn = &TNT_(h32_binop_ct); */
-/*          nm = "TNT_(h32_binop_ct)"; */
-/*       } else if ( arg1->tag == Iex_Const && arg2->tag == Iex_Const ) { */
-/*          fn = &TNT_(h32_binop_cc); */
-/*          nm = "TNT_(h32_binop_cc)"; */
-/*       } else if ( arg1->tag == Iex_RdTmp && arg2->tag == Iex_RdTmp ) { */
-/*          fn = &TNT_(h32_binop_tt); */
-/*          nm = "TNT_(h32_binop_tt)"; */
-/*       } else { */
-/*          VG_(tool_panic)("tnt_translate.c: create_dirty_BINOP"); */
-/*       } */
-/*    }else if( mce->hWordTy == Ity_I64 ){ */
-/*       if ( arg1->tag == Iex_RdTmp && arg2->tag == Iex_Const ) { */
-/*          fn = &TNT_(h64_binop_tc); */
-/*          nm = "TNT_(h64_binop_tc)"; */
-/*       } else if ( arg1->tag == Iex_Const && arg2->tag == Iex_RdTmp ) { */
-/*          fn = &TNT_(h64_binop_ct); */
-/*          nm = "TNT_(h64_binop_ct)"; */
-/*       } else if ( arg1->tag == Iex_Const && arg2->tag == Iex_Const ) { */
-/*          fn = &TNT_(h64_binop_cc); */
-/*          nm = "TNT_(h64_binop_cc)"; */
-/*       } else if ( arg1->tag == Iex_RdTmp && arg2->tag == Iex_RdTmp ) { */
-/*          fn = &TNT_(h64_binop_tt); */
-/*          nm = "TNT_(h64_binop_tt)"; */
-/*       } else { */
-/*          VG_(tool_panic)("tnt_translate.c: create_dirty_BINOP"); */
-/*       } */
-/*    }else */
-/*       VG_(tool_panic)("tnt_translate.c: create_dirty_BINOP: Unknown platform"); */
+static
+VG_REGPARM(3) void LK_(h32_binop_cc) ( IRStmt *stmt, UInt a , UInt b )
+{
+}
 
-/*    return unsafeIRDirty_0_N ( nargs/\*regparms*\/, nm, VG_(fnptr_to_fnentry)( fn ), args ); */
-/* } */
+
+static
+VG_REGPARM(3) void LK_(h64_binop_tc) ( IRStmt *stmt, ULong a , ULong b )
+{
+}
+
+static
+VG_REGPARM(3) void LK_(h64_binop_ct) ( IRStmt *stmt, ULong a, ULong b )
+{
+}
+
+static
+VG_REGPARM(3) void LK_(h64_binop_tt) ( IRStmt *stmt, ULong a , ULong b )
+{
+  //VG_(printf)(".");
+}
+
+static
+VG_REGPARM(3) void LK_(h64_binop_cc) ( IRStmt *stmt, ULong a, ULong b )
+{
+}
+
+
+/* ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ */
 
 
 static
@@ -796,6 +898,8 @@ IRSB* lk_instrument ( VgCallbackClosure* closure,
    Addr       iaddr = 0, dst;
    UInt       ilen = 0;
    Bool       condition_inverted = False;
+   LCEnv   mce;
+   VG_(memset)(&mce, 0, sizeof(mce));
 
    if (gWordTy != hWordTy) {
       /* We don't currently support this case. */
@@ -833,6 +937,11 @@ IRSB* lk_instrument ( VgCallbackClosure* closure,
    if (clo_trace_mem) {
       events_used = 0;
    }
+
+   Bool    verboze = 0||False;
+   mce.sb             = sbOut;
+   mce.hWordTy        = hWordTy;
+   mce.trace          = verboze;
 
    for (/*use current i*/; i < sbIn->stmts_used; i++) {
       IRStmt* st = sbIn->stmts[i];
@@ -902,33 +1011,27 @@ IRSB* lk_instrument ( VgCallbackClosure* closure,
             addStmtToIRSB( sbOut, st );
             break;
 
-         case Ist_WrTmp:
+        case Ist_WrTmp: {
             // Add a call to trace_load() if --trace-mem=yes.
             if (clo_trace_mem) {
                IRExpr* data = st->Ist.WrTmp.data;
-
-	       switch( data->tag ){
-	       case Iex_Binop:
-		 //data->Iex.Binop.op,
-		 //data->Iex.Binop.arg1, data->Iex.Binop.arg2
-		 break;
-	       }
 
                if (data->tag == Iex_Load) {
                   addEvent_Dr( sbOut, data->Iex.Load.addr,
                                sizeofIRType(data->Iex.Load.ty) );
                }
             }
+	    IRExpr* expr = st->Ist.WrTmp.data;
+	    IRType  type = typeOfIRExpr(sbOut->tyenv, expr);
             if (clo_detailed_counts) {
-               IRExpr* expr = st->Ist.WrTmp.data;
-               IRType  type = typeOfIRExpr(sbOut->tyenv, expr);
                tl_assert(type != Ity_INVALID);
                switch (expr->tag) {
                   case Iex_Load:
                     instrument_detail( sbOut, OpLoad, type, NULL/*guard*/ );
                      break;
                   case Iex_Unop:
-                  case Iex_Binop:
+	          case Iex_Binop:
+		    break;
                   case Iex_Triop:
                   case Iex_Qop:
                   case Iex_ITE:
@@ -938,8 +1041,79 @@ IRSB* lk_instrument ( VgCallbackClosure* closure,
                      break;
                }
             }
-            addStmtToIRSB( sbOut, st );
-            break;
+
+	    /* trace values of bin */
+	    switch (expr->tag) {
+	    case Iex_Binop:
+	      {
+		IRStmt *irstmt;
+		IRTemp tmp = st->Ist.WrTmp.tmp;
+
+		/* clone the src operands, later printed */
+		IRStmt *clone = deepMallocIRStmt(st);
+
+		/* add the wrtmp op now */
+		irstmt = IRStmt_WrTmp( tmp, expr );
+		addStmtToIRSB( sbOut, irstmt );
+		IROp op = expr->Iex.Binop.op;
+		IRExpr *arg1 = expr->Iex.Binop.arg1, *arg2 = expr->Iex.Binop.arg2;
+
+		/* prepare arguments for function call */
+		Int      nargs = 2;
+		IRExpr** args;
+		args  = mkIRExprVec_2( mkIRExpr_HWord((HWord)clone) ,
+				       convert_Value(&mce, IRExpr_RdTmp( tmp ))
+				       );
+
+		void*    fn;
+		const HChar*   nm;
+
+		if ( mce.hWordTy == Ity_I32 ){
+		  if ( arg1->tag == Iex_RdTmp && arg2->tag == Iex_Const ) {
+		    fn = &LK_(h32_binop_tc);
+		    nm = "LK_(h32_binop_tc)";
+		  } else if ( arg1->tag == Iex_Const && arg2->tag == Iex_RdTmp ) {
+		    fn = &LK_(h32_binop_ct);
+		    nm = "LK_(h32_binop_ct)";
+		  } else if ( arg1->tag == Iex_Const && arg2->tag == Iex_Const ) {
+		    fn = &LK_(h32_binop_cc);
+		    nm = "LK_(h32_binop_cc)";
+		  } else if ( arg1->tag == Iex_RdTmp && arg2->tag == Iex_RdTmp ) {
+		    fn = &LK_(h32_binop_tt);
+		    nm = "LK_(h32_binop_tt)";
+		  } else {
+		    VG_(tool_panic)("lk_translate.c: create_dirty_BINOP");
+		  }
+		}else if( mce.hWordTy == Ity_I64 ){
+		  if ( arg1->tag == Iex_RdTmp && arg2->tag == Iex_Const ) {
+		    fn = &LK_(h64_binop_tc);
+		    nm = "LK_(h64_binop_tc)";
+		  } else if ( arg1->tag == Iex_Const && arg2->tag == Iex_RdTmp ) {
+		    fn = &LK_(h64_binop_ct);
+		    nm = "LK_(h64_binop_ct)";
+		  } else if ( arg1->tag == Iex_Const && arg2->tag == Iex_Const ) {
+		    fn = &LK_(h64_binop_cc);
+		    nm = "LK_(h64_binop_cc)";
+		  } else if ( arg1->tag == Iex_RdTmp && arg2->tag == Iex_RdTmp ) {
+		    fn = &LK_(h64_binop_tt);
+		    nm = "LK_(h64_binop_tt)";
+		  } else {
+		    VG_(tool_panic)("lk_translate.c: create_dirty_BINOP");
+		  }
+		}else
+		  VG_(tool_panic)("lk_translate.c: create_dirty_BINOP: Unknown platform");
+
+		IRDirty *d = unsafeIRDirty_0_N ( nargs/*regparms*/, nm, VG_(fnptr_to_fnentry)( fn ), args );
+
+		stmt( 'V', &mce, IRStmt_Dirty(d));
+	      }
+	      break;
+	    default:
+	      addStmtToIRSB( sbOut, st );
+	      break;
+	    }
+	    break;
+ 	 }
 
          case Ist_Store: {
             IRExpr* data = st->Ist.Store.data;
