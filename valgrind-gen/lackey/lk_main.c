@@ -482,15 +482,18 @@ typedef
    instrumentation IR for each event, in the order in which they
    appear. */
 
+#define ENABLE_OUTPUT 0
+
 static Event events[N_EVENTS];
 static Int   events_used = 0;
 //static VgFile *bin_file = 0;
-static int enable_trace = 1;
+static int enable_trace = 0;
 
 static VG_REGPARM(2) void trace_instr(Addr addr, SizeT size)
 {
   int i;
-  if ((addr >= 0xa59d000 && addr < 0xadd6000) &&
+  if (ENABLE_OUTPUT &&
+      /*(addr >= 0xa59d000 && addr < 0xadd6000) &&*/
       (enable_trace)) {
 
     //VG_(printf)("I  %08lx,%lu:", addr, size);
@@ -838,7 +841,6 @@ static IRExpr* convert_Value( LCEnv* mce, IRAtom* value ){
 static
 VG_REGPARM(3) void LK_(h32_binop_tc) ( IRStmt *stmt, UInt a , UInt b )
 {
-  VG_(printf)(".");
 }
 
 static
@@ -861,17 +863,29 @@ VG_REGPARM(3) void LK_(h32_binop_cc) ( IRStmt *stmt, UInt a , UInt b )
 static
 VG_REGPARM(3) void LK_(h64_binop_tc) ( IRStmt *stmt, ULong a , ULong b )
 {
+  if (a & 0xffff == 0xe91b) {
+    VG_(printf)("---------------------- found --------------------\n");
+  }
+
 }
 
 static
 VG_REGPARM(3) void LK_(h64_binop_ct) ( IRStmt *stmt, ULong a, ULong b )
 {
+  if (a & 0xffff == 0xe91b) {
+    VG_(printf)("---------------------- found --------------------\n");
+  }
 }
 
 static
 VG_REGPARM(3) void LK_(h64_binop_tt) ( IRStmt *stmt, ULong a , ULong b )
 {
-  //VG_(printf)(".");
+  //ppIRStmt(stmt); vex_printf("0x%x\n", a);
+
+  if (a & 0xffff == 0xe91b) {
+    VG_(printf)("---------------------- found --------------------\n");
+  }
+
 }
 
 static

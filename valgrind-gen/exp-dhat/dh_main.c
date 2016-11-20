@@ -44,7 +44,14 @@
 #include "pub_tool_debuginfo.h"     // VG_(get_dataname_and_offset)
 #include "pub_tool_execontext.h"
 
+#include <sys/syscall.h>
+
 #define HISTOGRAM_SIZE_LIMIT 1024
+#define FD_MAX 256
+#define FD_MAX_PATH 256
+#define FD_READ 0x1
+#define FD_WRITE 0x2
+#define FD_STAT 0x4
 
 
 //------------------------------------------------------------//
@@ -722,7 +729,11 @@ static const char searchfor[] = { //0xD9, 0x1E, 0xA5, 0x73, 0xA0, 0xC5 //0x32,0x
   //0xd4, 0x0e, 0xec, 0x1b, 0x83, 0xad
   //0xa4, 0x06, 0x3e, 0x88 , 0x19, 0x16, 0xd4, 0x0e
   //0xB9 , 0x79 , 0x37 , 0x9E
-  0x96, 0xe8, 0xdf, 0xd8, 0x35, 0x4f, 0xb2, 0x28
+  //0x96, 0xe8, 0xdf, 0xd8, 0x35, 0x4f, 0xb2, 0x28
+
+  //synopsysaes.dec.hex: 1be9c2943418d47ffc4a285374af7512
+  0x1b, 0xe9, 0xc2, 0x94, 0x34, 0x18, 0xd4, 0x7f
+
   //0xc5,0x2c,0xce,0x3d,0xd5,0x6c,0x7f,0x23
   //0x20,0xda,0x66,0x28,0xc9,0x01,0xb9,0xab,0xba,0x6d,0xd1,0x22,0x04,0x57,0x1b,0x37
 
@@ -770,7 +781,7 @@ static VG_REGPARM(3)
      if (is_subinterval_of(bk->payload, bk->req_szB, addr-7, 8)) {
        int i = 0;
        for (i = 0; i <= 8; i++) {
-	 if ((VG_(memcmp)(((char*)addr)+ i-7, searchfor, 8) == 0)) {
+	 if ((VG_(memcmp)(((char*)addr)+ i-8, searchfor, 8) == 0)) {
 	   //char b[1];
 	   ExeContext *ec = VG_(record_ExeContext)( VG_(get_running_tid)(), 0 );
 	   //ec->n_ips = 32;
@@ -1441,6 +1452,338 @@ static void dh_fini(Int exit_status)
 }
 
 
+int enable_trace= 1;
+
+static
+void resolve_filename(UWord fd, HChar *path, Int max)
+{
+   HChar src[FD_MAX_PATH];
+   Int len = 0;
+
+   // TODO: Cache resolved fds by also catching open()s and close()s
+   VG_(sprintf)(src, "/proc/%d/fd/%d", VG_(getpid)(), (int)fd);
+   len = VG_(readlink)(src, path, max);
+
+   // Just give emptiness on error.
+   if (len == -1) len = 0;
+   path[len] = '\0';
+}
+/*
+
+  0xA8FE1E7
+
+
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/librdi_common.so
+M 0x0:l=8192:p=0x3:f=0x22:fd=-1:off:0x0=>0x0x4028000
+M 0x0:l=12225032:p=0x5:f=0x802:fd=3:off:0x0=>0x0x52B0000
+M 0x5E1C000:l=212992:p=0x3:f=0x812:fd=3:off:0x96c000=>0x0x5E1C000
+M 0x5E50000:l=35336:p=0x3:f=0x32:fd=-1:off:0x0=>0x0x5E50000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/librdi_commoncwebtalk.so
+M 0x0:l=2256160:p=0x5:f=0x802:fd=3:off:0x0=>0x0x5E59000
+M 0x607E000:l=8192:p=0x3:f=0x812:fd=3:off:0x25000=>0x0x607E000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/librdi_commonversion.so
+M 0x0:l=2107040:p=0x5:f=0x802:fd=3:off:0x0=>0x0x6080000
+M 0x6282000:l=4096:p=0x3:f=0x812:fd=3:off:0x2000=>0x0x6282000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/librdi_sio.so
+M 0x0:l=4632520:p=0x5:f=0x802:fd=3:off:0x0=>0x0x6283000
+M 0x66CC000:l=131072:p=0x3:f=0x812:fd=3:off:0x249000=>0x0x66CC000
+M 0x66EC000:l=8136:p=0x3:f=0x32:fd=-1:off:0x0=>0x0x66EC000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/librdizlib.so
+M 0x0:l=2250992:p=0x5:f=0x802:fd=3:off:0x0=>0x0x66EE000
+M 0x6913000:l=4096:p=0x3:f=0x812:fd=3:off:0x25000=>0x0x6913000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libxsimverific.so
+M 0x0:l=15515592:p=0x5:f=0x802:fd=3:off:0x0=>0x0x6914000
+M 0x76D8000:l=1064960:p=0x3:f=0x812:fd=3:off:0xbc4000=>0x0x76D8000
+M 0x77DC000:l=16328:p=0x3:f=0x32:fd=-1:off:0x0=>0x0x77DC000
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 3:/etc/ld.so.cache
+M 0x0:l=242928:p=0x1:f=0x2:fd=3:off:0x0=>0x0x402A000
+O 3:/lib/x86_64-linux-gnu/libpthread-2.24.so
+M 0x0:l=8192:p=0x3:f=0x22:fd=-1:off:0x0=>0x0x4066000
+M 0x0:l=2217000:p=0x5:f=0x802:fd=3:off:0x0=>0x0x77E0000
+M 0x79F8000:l=8192:p=0x3:f=0x812:fd=3:off:0x18000=>0x0x79F8000
+M 0x79FA000:l=13352:p=0x3:f=0x32:fd=-1:off:0x0=>0x0x79FA000
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 3:/lib/x86_64-linux-gnu/libncurses.so.5.9
+M 0x0:l=2232712:p=0x5:f=0x802:fd=3:off:0x0=>0x0x79FE000
+M 0x7C1E000:l=8192:p=0x3:f=0x812:fd=3:off:0x20000=>0x0x7C1E000
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 3:/lib/x86_64-linux-gnu/libdl-2.24.so
+M 0x0:l=2109680:p=0x5:f=0x802:fd=3:off:0x0=>0x0x7C20000
+M 0x7E22000:l=8192:p=0x3:f=0x812:fd=3:off:0x2000=>0x0x7E22000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libstdc++.so.6
+M 0x0:l=3150848:p=0x5:f=0x802:fd=3:off:0x0=>0x0x7E24000
+M 0x8107000:l=40960:p=0x3:f=0x812:fd=3:off:0xe3000=>0x0x8107000
+M 0x8111000:l=82944:p=0x3:f=0x32:fd=-1:off:0x0=>0x0x8111000
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 3:/lib/x86_64-linux-gnu/libm-2.24.so
+M 0x0:l=3178744:p=0x5:f=0x802:fd=3:off:0x0=>0x0x8126000
+M 0x842D000:l=8192:p=0x3:f=0x812:fd=3:off:0x107000=>0x0x842D000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libgcc_s.so.1
+M 0x0:l=2184800:p=0x5:f=0x802:fd=3:off:0x0=>0x0x842F000
+M 0x8644000:l=4096:p=0x3:f=0x812:fd=3:off:0x15000=>0x0x8644000
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 3:/lib/x86_64-linux-gnu/libc-2.24.so
+M 0x0:l=8192:p=0x3:f=0x22:fd=-1:off:0x0=>0x0x4068000
+M 0x0:l=3959200:p=0x5:f=0x802:fd=3:off:0x0=>0x0x8645000
+M 0x8A02000:l=24576:p=0x3:f=0x812:fd=3:off:0x1bd000=>0x0x8A02000
+M 0x8A08000:l=14752:p=0x3:f=0x32:fd=-1:off:0x0=>0x0x8A08000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libboost_system.so
+M 0x0:l=2106976:p=0x5:f=0x802:fd=3:off:0x0=>0x0x8A0C000
+M 0x8C0E000:l=4096:p=0x3:f=0x812:fd=3:off:0x2000=>0x0x8C0E000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libCOIN-all.so
+M 0x0:l=8088128:p=0x5:f=0x802:fd=3:off:0x0=>0x0x8C0F000
+M 0x93A3000:l=114688:p=0x3:f=0x812:fd=3:off:0x594000=>0x0x93A3000
+M 0x93BF000:l=27200:p=0x3:f=0x32:fd=-1:off:0x0=>0x0x93BF000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libXil_lmgr11.so
+M 0x0:l=3566336:p=0x5:f=0x802:fd=3:off:0x0=>0x0x93C6000
+M 0x971C000:l=61440:p=0x3:f=0x812:fd=3:off:0x156000=>0x0x971C000
+M 0x972B000:l=6912:p=0x3:f=0x32:fd=-1:off:0x0=>0x0x972B000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libboost_date_time.so
+M 0x0:l=2154408:p=0x5:f=0x802:fd=3:off:0x0=>0x0x972D000
+M 0x993A000:l=4096:p=0x3:f=0x812:fd=3:off:0xd000=>0x0x993A000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libboost_regex.so
+M 0x0:l=3041912:p=0x5:f=0x802:fd=3:off:0x0=>0x0x993B000
+M 0x9C1C000:l=24576:p=0x3:f=0x812:fd=3:off:0xe1000=>0x0x9C1C000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libboost_signals.so
+M 0x0:l=8192:p=0x3:f=0x22:fd=-1:off:0x0=>0x0x406A000
+M 0x0:l=2178816:p=0x5:f=0x802:fd=3:off:0x0=>0x0x9C22000
+M 0x9E35000:l=4096:p=0x3:f=0x812:fd=3:off:0x13000=>0x0x9E35000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libboost_thread.so
+M 0x0:l=2219560:p=0x5:f=0x802:fd=3:off:0x0=>0x0x9E36000
+M 0xA052000:l=8192:p=0x3:f=0x812:fd=3:off:0x1c000=>0x0xA052000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libboost_xilinx.so
+M 0x0:l=2114944:p=0x5:f=0x802:fd=3:off:0x0=>0x0xA054000
+M 0xA258000:l=4096:p=0x3:f=0x812:fd=3:off:0x4000=>0x0xA258000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libhdlpsolve.so
+M 0x0:l=2764296:p=0x5:f=0x802:fd=3:off:0x0=>0x0xA259000
+M 0xA4F8000:l=16384:p=0x3:f=0x812:fd=3:off:0x9f000=>0x0xA4F8000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libhdxml.so
+M 0x0:l=2784376:p=0x5:f=0x802:fd=3:off:0x0=>0x0xA4FC000
+M 0xA79C000:l=32768:p=0x3:f=0x812:fd=3:off:0xa0000=>0x0xA79C000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libisl_iostreams.so
+M 0x0:l=8620100:p=0x7:f=0x802:fd=3:off:0x0=>0x0xA7A4000
+M 0xABF3000:l=155648:p=0x7:f=0x812:fd=3:off:0x24f000=>0x0xABF3000
+M 0xAC19000:l=7488:p=0x7:f=0x32:fd=-1:off:0x0=>0x0xAC19000
+M 0xACA4000:l=3379200:p=0x7:f=0x812:fd=3:off:0x500000=>0x0xACA4000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libisl_sysinfo.so
+M 0x0:l=8192:p=0x3:f=0x22:fd=-1:off:0x0=>0x0x406C000
+M 0x0:l=2300608:p=0x5:f=0x802:fd=3:off:0x0=>0x0xAFDD000
+M 0xB20D000:l=8192:p=0x3:f=0x812:fd=3:off:0x30000=>0x0xB20D000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libprotobuf.so.7
+M 0x0:l=3082992:p=0x5:f=0x802:fd=3:off:0x0=>0x0xB20F000
+M 0xB4FA000:l=24576:p=0x3:f=0x812:fd=3:off:0xeb000=>0x0xB4FA000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/librdi_commonxillic.so
+M 0x0:l=2473952:p=0x5:f=0x802:fd=3:off:0x0=>0x0xB500000
+M 0xB759000:l=12288:p=0x3:f=0x812:fd=3:off:0x59000=>0x0xB759000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/librdi_curl.so
+M 0x0:l=4254592:p=0x5:f=0x802:fd=3:off:0x0=>0x0xB75C000
+M 0xBB44000:l=147456:p=0x3:f=0x812:fd=3:off:0x1e8000=>0x0xBB44000
+M 0xBB68000:l=11136:p=0x3:f=0x32:fd=-1:off:0x0=>0x0xBB68000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/librdiconfig.so
+M 0x0:l=2194408:p=0x5:f=0x802:fd=3:off:0x0=>0x0xBB6B000
+M 0xBD82000:l=4096:p=0x3:f=0x812:fd=3:off:0x17000=>0x0xBD82000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libtcl8.5.so
+M 0x0:l=3284400:p=0x5:f=0x802:fd=3:off:0x0=>0x0xBD83000
+M 0xC099000:l=45056:p=0x3:f=0x812:fd=3:off:0x116000=>0x0xC099000
+M 0xC0A4000:l=3504:p=0x3:f=0x32:fd=-1:off:0x0=>0x0xC0A4000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libxerces-c-3.1.so
+M 0x0:l=8192:p=0x3:f=0x22:fd=-1:off:0x0=>0x0x406E000
+M 0x0:l=5938872:p=0x5:f=0x802:fd=3:off:0x0=>0x0xC0A5000
+M 0xC611000:l=253952:p=0x3:f=0x812:fd=3:off:0x36c000=>0x0xC611000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libgomp.so.1
+M 0x0:l=2151872:p=0x5:f=0x802:fd=3:off:0x0=>0x0xC64F000
+M 0xC85C000:l=4096:p=0x3:f=0x812:fd=3:off:0xd000=>0x0xC85C000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libisl_iosutils.so
+M 0x0:l=2199520:p=0x5:f=0x802:fd=3:off:0x0=>0x0xC85D000
+M 0xCA75000:l=4096:p=0x3:f=0x812:fd=3:off:0x18000=>0x0xCA75000
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 3:/lib/x86_64-linux-gnu/libtinfo.so.5.9
+M 0x0:l=2263840:p=0x5:f=0x802:fd=3:off:0x0=>0x0xCA76000
+M 0xCC9A000:l=20480:p=0x3:f=0x812:fd=3:off:0x24000=>0x0xCC9A000
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 0:/dev/pts/10
+O 3:/lib/x86_64-linux-gnu/librt-2.24.so
+M 0x0:l=2128832:p=0x5:f=0x802:fd=3:off:0x0=>0x0xCC9F000
+M 0xCEA5000:l=8192:p=0x3:f=0x812:fd=3:off:0x6000=>0x0xCEA5000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libboost_iostreams.so
+M 0x0:l=8192:p=0x3:f=0x22:fd=-1:off:0x0=>0x0x4070000
+M 0x0:l=2170720:p=0x5:f=0x802:fd=3:off:0x0=>0x0xCEA7000
+M 0xD0B8000:l=4096:p=0x3:f=0x812:fd=3:off:0x11000=>0x0xD0B8000
+M 0x0:l=8192:p=0x3:f=0x22:fd=-1:off:0x0=>0x0x4072000
+M 0x0:l=8192:p=0x3:f=0x22:fd=-1:off:0x0=>0x0x4074000
+O 3:/sys/devices/system/cpu/online
+O 3:/usr/lib/locale/locale-archive
+M 0x0:l=6144048:p=0x1:f=0x2:fd=3:off:0x0=>0x0xD4B9000
+O 3:/usr/lib/x86_64-linux-gnu/gconv/gconv-modules.cache
+M 0x0:l=26258:p=0x1:f=0x1:fd=3:off:0x0=>0x0x402A000
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/librdi_common.so
+O 3:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libtcmalloc.so.4
+O 3:/proc/25132/status
+O 3:/home/eiselekd/git/logfiles/vivado_2016.3/xvhdl.pb
+O 4:/home/eiselekd/git/logfiles/vivado_2016.3/xvhdl.log
+O 5:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/data/xsim/xsim.ini
+O 0:/dev/pts/10
+O 5:/home/eiselekd/git/logfiles/vivado_2016.3/xsim.dir/work/work.rlx
+O 5:/home/eiselekd/git/logfiles/vivado_2016.3/microblaze_v9_6_vh_rfs.vhd
+O 5:/home/eiselekd/git/logfiles/vivado_2016.3/microblaze_v9_6_vh_rfs.vhd
+O 6:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/data/msg/xsimverific.msg
+O 6:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/data/msg/xsimverific.msg
+O 6:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/data/msg/xsimverific.msg
+O 6:/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/data/msg/xsimverific.msg
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+O 7:/proc/25132/status
+INFO: [VRFC 10-163] Analyzing VHDL file "/home/eiselekd/git/logfiles/vivado_2016.3/microblaze_v9_6_vh_rfs.vhd" into library work
+O 6:/proc/25132/status
+O 6:/proc/25132/status
+O 6:/proc/25132/status
+O 6:/dev/urandom
+==25132==    at 0xA8FE1E7: ??? (in /mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libisl_iostreams.so)
+==25132==    by 0xE0E068F: ???
+==25132==    by 0xD139B8F: ???
+==25132==    by 0xD15207F: ???
+==25132==    by 0xA905470: ??? (in /mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libisl_iostreams.so)
+==25132==    by 0x6465776F6C6C615E: ???
+==25132==    by 0xD13691F: ???
+
+ */
+
+static void dh_syscall_open(ThreadId tid, UWord* args, UInt nArgs, SysRes res) {
+
+   HChar fdpath[FD_MAX_PATH];
+   Int fd = sr_Res(res);
+   Bool verbose = False;
+   (void)verbose;
+   resolve_filename(fd, fdpath, FD_MAX_PATH-1);
+   if (!VG_(strcmp)(fdpath, "/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libisl_iostreams.so"))
+       enable_trace = 1;
+   VG_(printf)("O %d:%s\n", fd,fdpath);
+}
+
+static void dh_syscall_mmap(ThreadId tid, UWord* args, UInt nArgs, SysRes res) {
+
+  VG_(printf)("M %p:l=%d:p=0x%x:f=0x%x:fd=%d:off:0x%x=>0x%p\n", (void*)args[0],(int)args[1],(int)args[2],(int)args[3],(int)args[4],(int)args[5], (void*)sr_Res(res));
+
+}
+
+static
+void dh_post_syscall(ThreadId tid, UInt syscallno,
+                            UWord* args, UInt nArgs, SysRes res)
+{
+  //TNT_(syscall_allowed_check)(tid, syscallno);
+
+   switch ((int)syscallno) {
+    // Should be defined by respective vki/vki-arch-os.h
+    case __NR_read:
+      //TNT_(syscall_read)(tid, args, nArgs, res);
+      break;
+    case __NR_write:
+      //TNT_(syscall_write)(tid, args, nArgs, res);
+      break;
+    case __NR_open:
+    case __NR_openat:
+      dh_syscall_open(tid, args, nArgs, res);
+      break;
+    case __NR_mmap:
+      dh_syscall_mmap(tid, args, nArgs, res);
+      break;
+    case __NR_close:
+      //TNT_(syscall_close)(tid, args, nArgs, res);
+      break;
+    case __NR_lseek:
+      //TNT_(syscall_lseek)(tid, args, nArgs, res);
+      break;
+#ifdef __NR_llseek
+    case __NR_llseek:
+      //TNT_(syscall_llseek)(tid, args, nArgs, res);
+      break;
+#endif
+    case __NR_pread64:
+      //TNT_(syscall_pread)(tid, args, nArgs, res);
+      break;
+  }
+}
+
+static
+void dh_pre_syscall(ThreadId tid, UInt syscallno,
+                           UWord* args, UInt nArgs)
+{
+}
+
+
 //------------------------------------------------------------//
 //--- Initialisation                                       ---//
 //------------------------------------------------------------//
@@ -1500,6 +1843,10 @@ static void dh_pre_clo_init(void)
                         "dh.main.apinfo.1",
                         VG_(free),
                         NULL/*unboxedcmp*/ );
+
+   VG_(needs_syscall_wrapper)     ( dh_pre_syscall,
+                                    dh_post_syscall );
+
 }
 
 VG_DETERMINE_INTERFACE_VERSION(dh_pre_clo_init)

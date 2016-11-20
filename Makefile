@@ -42,5 +42,8 @@ tags:
 	cd valgrind-gen; rm GPATH GRTAGS GTAGS
 	cd valgrind-gen; find include VEX/pub VEX coregrind lackey taintgrind  -type f | grep -e '.c$$\|.h$$' | gtags -i -f -
 
+vg-taint-prep:
+	cd valgrind-gen/taintgrind; ../autogen.sh; ./configure --prefix=$(HOME)/bin-valgrind; make clean
+
 vg-taint:
-	cd valgrind-gen/taintgrind; ../autogen.sh; ./configure --prefix=$(HOME)/bin-taintgrind
+	cd valgrind-gen/taintgrind; make; make install
