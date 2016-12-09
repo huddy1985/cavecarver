@@ -16,3 +16,6 @@ sudo cryptsetup -c aes-xts-plain -s 256 luksFormat /dev/sda3
 sudo cryptsetup luksOpen /dev/sda3 luksroot
 sudo mkfs.btrfs /dev/mapper/luksroot
 sudo mount -o noatime,nodiratime,ssd,compress=lzo /dev/mapper/luksroot /mnt
+
+sudo cryptsetup luksAddKey /dev/sdX /root/keyfile
+
