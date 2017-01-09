@@ -507,6 +507,7 @@ static VG_REGPARM(2) void trace_instr(Addr addr, SizeT size)
     _DInst insn[1]; unsigned int icnt = 0, decodedInstructionsCount = 0;
     _CodeInfo ci; int res;
     _DecodedInst decodedInstructions[1];
+    (void)res; (void)ci; (void)icnt; (void)insn;
 
     ci.code = (uint8_t*)addr;
     ci.codeOffset = 0;
@@ -1029,6 +1030,15 @@ IRSB* lk_instrument ( VgCallbackClosure* closure,
             // Add a call to trace_load() if --trace-mem=yes.
             if (clo_trace_mem) {
                IRExpr* data = st->Ist.WrTmp.data;
+
+	       switch( data->tag ){
+	       case Iex_Binop:
+		 //data->Iex.Binop.op,
+		 //data->Iex.Binop.arg1, data->Iex.Binop.arg2
+		 break;
+	       default:
+		 break;
+	       }
 
                if (data->tag == Iex_Load) {
                   addEvent_Dr( sbOut, data->Iex.Load.addr,
