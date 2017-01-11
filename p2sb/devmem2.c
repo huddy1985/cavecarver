@@ -58,14 +58,14 @@
 int main(int argc, char **argv) {
     int fd;
     void *map_base, *virt_addr; 
-	unsigned long read_result, writeval;
+	unsigned long long read_result, writeval;
 	off_t target;
 	int access_type = 'w';
 	
 	if(argc < 2) {
 		fprintf(stderr, "\nUsage:\t%s { address } [ type [ data ] ]\n"
 			"\taddress : memory address to act upon\n"
-			"\ttype    : access operation type : [b]yte, [h]alfword, [w]ord\n"
+			"\ttype    : access operation type : [b]yte, [h]alfword, [w]ord, [q]word\n"
 			"\tdata    : data to be written\n\n",
 			argv[0]);
 		exit(1);
@@ -97,6 +97,9 @@ int main(int argc, char **argv) {
 		case 'w':
 			read_result = *((unsigned long *) virt_addr);
 			break;
+		case 'q':
+			read_result = *((unsigned long long *) virt_addr);
+			break;
 		default:
 			fprintf(stderr, "Illegal data type '%c'.\n", access_type);
 			exit(2);
@@ -118,6 +121,10 @@ int main(int argc, char **argv) {
 			case 'w':
 				*((unsigned long *) virt_addr) = writeval;
 				read_result = *((unsigned long *) virt_addr);
+				break;
+			case 'q':
+				*((unsigned long long *) virt_addr) = writeval;
+				read_result = *((unsigned long long *) virt_addr);
 				break;
 		}
 		printf("Written 0x%X; readback 0x%X\n", writeval, read_result); 

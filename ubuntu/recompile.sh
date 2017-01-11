@@ -17,3 +17,11 @@ DEB_BUILD_OPTIONS=parallel=4 AUTOBUILD=1 NOEXTRAS=1 fakeroot debian/rules binary
 #export DEB_BUILD_OPTIONS="debug nostrip noopt"
 #dpkg-buildpackage -rfakeroot -b
 
+# errata:
+# sudo apt-get build-dep linux-image-$(uname -r)
+# sudo apt-get install  libcurses5-dev
+# fakeroot debian/rules editconfigs
+# chmod a+rwx /home/eiselekd/git/cavecarver/ubuntu/linux-4.4.0/debian/scripts/misc/splitconfig.pl
+# /home/eiselekd/git/cavecarver/ubuntu/linux-4.4.0/debian.master/config/annotations
+# remove strictmem annotatioon
+
