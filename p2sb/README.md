@@ -14,3 +14,6 @@
        You also need OTG USB 3.0 Super-Speed A/A Debugging Cable:
        Gen 1 DbC cable is a standard USB3 Type A to Type A cable but with VBUS and USB2 signals (D+/D-) removed
        i.e.: http://www.datapro.net/products/usb-3-0-super-speed-a-a-debugging-cable.html
+
+To debug the target system you need to also enable "Debug Interface" option in the BIOS via i.e. AMIBCP or
+https://twitter.com/h0t_max/status/819237533775175681?s=03 . DCI can be enabled via AMIBCP as well.
