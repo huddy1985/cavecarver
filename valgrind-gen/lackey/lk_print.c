@@ -3,6 +3,43 @@
 /* vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv */
 /****************************************************************/
 /*************** taintgrind copy ********************************/
+HChar* client_binary_name = NULL;
+
+static void infer_client_binary_name(UInt pc) {
+
+   if (client_binary_name == NULL) {
+      DebugInfo* di = VG_(find_DebugInfo)(pc);
+      if (di && VG_(strcmp)(VG_(DebugInfo_get_soname)(di), "NONE") == 0) {
+         //VG_(printf)("client_binary_name: %s\n", VG_(DebugInfo_get_filename)(di));
+         client_binary_name = (HChar*)VG_(malloc)("client_binary_name",sizeof(HChar)*(VG_(strlen)(VG_(DebugInfo_get_filename)(di)+1)));
+         VG_(strcpy)(client_binary_name, VG_(DebugInfo_get_filename)(di));
+      }
+   }
+}
+
+static Int extract_IRConst( IRConst* con ){
+   switch(con->tag){
+      case Ico_U1:
+         return con->Ico.U1;
+      case Ico_U8:
+         return con->Ico.U8;
+      case Ico_U16:
+         return con->Ico.U16;
+      case Ico_U32:
+         return con->Ico.U32;
+      case Ico_U64: // Taintgrind: Re-cast it and hope for the best
+         return con->Ico.U64;
+      case Ico_F64:
+         return con->Ico.F64;
+      case Ico_F64i:
+         return con->Ico.F64i;
+      case Ico_V128:
+         return con->Ico.V128;
+      default:
+         ppIRConst(con);
+         VG_(tool_panic)("tnt_translate.c: convert_IRConst");
+   }
+}
 
 /* add stmt to a bb */
 void LK_(stmt) ( HChar cat, LCEnv* mce, IRStmt* st ) { //385
@@ -36,7 +73,6 @@ void assign ( HChar cat, LCEnv* mce, IRTemp tmp, IRExpr* expr ) {
 /* Bind the given expression to a new temporary, and return the
    temporary.  This effectively converts an arbitrary expression into
    an atom.
-
    'ty' is the type of 'e' and hence the type that the new temporary
    needs to be.  But passing it in is redundant, since we can deduce
    the type merely by inspecting 'e'.  So at least use that fact to
@@ -113,6 +149,23 @@ IRExpr* LK_(convert_Value)( LCEnv* mce, IRAtom* value ){
    }
 }
 
+#define H_EXIT_EARLY \
+
+#define H_SMT2( fn ) \
+
+#define H64_PC_OP \
+   ULong pc = VG_(get_IP)( VG_(get_running_tid)() ); \
+   HChar aTmp1[128], aTmp2[128]; \
+   infer_client_binary_name(pc); \
+   const HChar *fnname = VG_(describe_IP) ( pc, NULL );
+
+#define H64_PRINT_OP(value, taint)        \
+   VG_(printf)("%s | %s", fnname, aTmp1); \
+   ppIROp(op); \
+   VG_(printf)("%s | 0x%llx  | 0x%llx ", aTmp2, value, taint);
+
+#define H_WRTMP_BOOKKEEPING \
+   UInt ltmp = stmt->Ist.WrTmp.tmp; \
 
 VG_REGPARM(3) void LK_(h32_binop_tc) ( IRStmt *stmt, UInt a , UInt b )
 {
@@ -147,16 +200,23 @@ VG_REGPARM(3) void LK_(h64_binop_tc) ( IRStmt *stmt, ULong a , ULong b )
 VG_REGPARM(3) void LK_(h64_binop_ct) ( IRStmt *stmt, ULong a, ULong b )
 {
     VG_(printf)("V h64_binop_ct\n");
+
+
     if ((a & 0xffff) == 0xe91b) {
-    VG_(printf)("---------------------- found --------------------\n");
-  }
+        VG_(printf)("---------------------- found --------------------\n");
+    }
 }
 
 VG_REGPARM(3) void LK_(h64_binop_tt) ( IRStmt *stmt, ULong a , ULong b )
 {
     //ppIRStmt(stmt); vex_printf("0x%x\n", a);
+    H_WRTMP_BOOKKEEPING;
 
     VG_(printf)("V h64_binop_tt\n");
+
+    H_EXIT_EARLY;
+    H_SMT2(smt2_binop_tt);
+    H64_PC_OP;
 
     IROp op = stmt->Ist.WrTmp.data->Iex.Binop.op;
     IRExpr* arg1 = stmt->Ist.WrTmp.data->Iex.Binop.arg1;
@@ -165,9 +225,15 @@ VG_REGPARM(3) void LK_(h64_binop_tt) ( IRStmt *stmt, ULong a , ULong b )
     UInt rtmp2 = arg2->Iex.RdTmp.tmp;
 
 
-    if ((a & 0xffff) == 0xe91b) {
-        VG_(printf)("---------------------- found --------------------\n");
-    }
+    VG_(snprintf)( aTmp1, sizeof(aTmp1), "t%d_%d = ",
+                   ltmp, (ltmp) );
+    VG_(snprintf)( aTmp2, sizeof(aTmp2), " t%d_%d t%d_%d",
+                   rtmp1, (rtmp1),
+                   rtmp2, (rtmp2) );
+    H64_PRINT_OP(a,b);
+
+    // Information flow
+    VG_(printf)( "t%d_%d <- t%d_%d\n", ltmp, (ltmp), rtmp2, (rtmp2) );
 
 }
 
