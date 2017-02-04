@@ -10,3 +10,7 @@
       any address (for example 0xfd000000) P2SBBASE
    3. Write to P2SBBASE+0xB80004 dword 0x10
    4. Read dword from P2SBBASE+0xB80004 and 4-bit must be set (DCI activated!)
+
+       You also need OTG USB 3.0 Super-Speed A/A Debugging Cable:
+       Gen 1 DbC cable is a standard USB3 Type A to Type A cable but with VBUS and USB2 signals (D+/D-) removed
+       i.e.: http://www.datapro.net/products/usb-3-0-super-speed-a-a-debugging-cable.html
