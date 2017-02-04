@@ -60,4 +60,7 @@ VG_REGPARM(3) void LK_(h64_binop_ct) ( IRStmt *stmt, ULong a, ULong b );
 VG_REGPARM(3) void LK_(h64_binop_tt) ( IRStmt *stmt, ULong a , ULong b );
 VG_REGPARM(3) void LK_(h64_binop_cc) ( IRStmt *stmt, ULong a, ULong b );
 
+VG_REGPARM(3) void LK_(h32_get) (IRStmt *clone, UInt value, UInt taint );
+VG_REGPARM(3) void LK_(h64_get) (IRStmt *clone, ULong value, ULong taint );
+
 #endif

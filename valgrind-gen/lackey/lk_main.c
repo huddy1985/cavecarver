@@ -481,7 +481,7 @@ static VG_REGPARM(2) void trace_instr(Addr addr, SizeT size)
 
     res = distorm_decode(addr, (const unsigned char*)(uint8_t*)addr, addr+size, Decode64Bits, decodedInstructions, 1, &decodedInstructionsCount);
 
-    VG_(printf)("I  %llx %-24s %s%s%s\r\n", (long long)decodedInstructions[0].offset,
+    VG_(printf)("---------\nI  %llx %-24s %s%s%s\r\n", (long long)decodedInstructions[0].offset,
 	   (char*)decodedInstructions[0].instructionHex.p,
 	   (char*)decodedInstructions[0].mnemonic.p, decodedInstructions[0].operands.length != 0 ? " " : "",
 	   (char*)decodedInstructions[0].operands.p);
@@ -805,8 +805,21 @@ IRSB* lk_instrument ( VgCallbackClosure* closure,
                // WARNING: do not remove this function call, even if you
                // aren't interested in instruction reads.  See the comment
                // above the function itself for more detail.
-               addEvent_Ir( sbOut, mkIRExpr_HWord( (HWord)st->Ist.IMark.addr ),
-                            st->Ist.IMark.len );
+               /*addEvent_Ir( sbOut, mkIRExpr_HWord( (HWord)st->Ist.IMark.addr ),
+                 st->Ist.IMark.len );*/
+
+                IRExpr**   argv;
+                IRDirty*   di;
+                argv = mkIRExprVec_2( mkIRExpr_HWord( (HWord)st->Ist.IMark.addr ), mkIRExpr_HWord( st->Ist.IMark.len ) );
+                di   = unsafeIRDirty_0_N( /*regparms*/2,
+                                          "trace_instr", VG_(fnptr_to_fnentry)( trace_instr ),
+                                          argv );
+                addStmtToIRSB( sbOut, IRStmt_Dirty(di) );
+
+
+
+
+
             }
             addStmtToIRSB( sbOut, st );
             break;
@@ -917,6 +930,40 @@ IRSB* lk_instrument ( VgCallbackClosure* closure,
 		LK_(stmt)( 'V', &mce, IRStmt_Dirty(d));
 	      }
 	      break;
+            case Iex_Get:
+              {
+                  IRStmt *irstmt;
+                  IRTemp tmp = st->Ist.WrTmp.tmp;
+                  irstmt = IRStmt_WrTmp( tmp, expr );
+                  addStmtToIRSB( sbOut, irstmt );
+
+                  /* clone the src operands, later printed */
+                  IRStmt *clone = deepMallocIRStmt(st);
+
+                  IRExpr** args;
+                  Int offset = expr->Iex.Get.offset;
+                  IRType ty = expr->Iex.Get.ty;
+
+                  Int      nargs = 2;
+                  args  = mkIRExprVec_2( mkIRExpr_HWord((HWord)clone),
+                                         LK_(convert_Value)( &mce, IRExpr_RdTmp( tmp ) ));
+
+		void*    fn;
+		const HChar*   nm;
+                if(mce.hWordTy == Ity_I32){
+                      fn    = &LK_(h32_get);
+                      nm    = "LK_(h32_get)";
+                  }else if(mce.hWordTy == Ity_I64){
+                      fn    = &LK_(h64_get);
+                      nm    = "LK_(h64_get)";
+                  }else
+                      VG_(tool_panic)("tnt_translate.c: create_dirty_GET: Unknown platform");
+
+                  IRDirty *d = unsafeIRDirty_0_N ( nargs/*regparms*/, nm, VG_(fnptr_to_fnentry)( fn ), args );
+                  LK_(stmt)( 'V', &mce, IRStmt_Dirty(d));
+
+              }
+              break;
 	    default:
 	      addStmtToIRSB( sbOut, st );
 	      break;

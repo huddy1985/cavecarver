@@ -38,6 +38,9 @@ vb:
 vc:
 	cd valgrind-gen; make; make install
 
+vr:
+	$(HOME)/bin-valgrind/bin/valgrind --tool=lackey ls
+
 ve:
 	export FLYCHECK_GENERIC_SRC=$(CURDIR)/valgrind-gen; \
 	export FLYCHECK_GENERIC_BUILD=$(CURDIR)/valgrind-gen; \

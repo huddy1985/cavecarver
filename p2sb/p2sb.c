@@ -7,13 +7,13 @@
 #include <asm/unistd.h>
 #include <linux/debugfs.h>
 
-static struct dentry *dirret = 0; 
+static struct dentry *dirret = 0;
 /*
-  usage: 
-  
+  usage:
+
    $insmod ./p2sb.ko PCI_BASE=0xe0000000 P2SB_BASE=0xfc000000
    $echo 1 > /sys/kernel/debug/dci/enable
-  
+
    Gigabyte brix configuration space:
 
    $ dmesg  | grep MC
@@ -29,8 +29,8 @@ static struct dentry *dirret = 0;
      [    0.036148] mce: CPU supports 8 MCE banks
      [    0.137842] PCI: MMCONFIG for domain 0000 [bus 00-3f] at [mem 0xf8000000-0xfbffffff] (base 0xf8000000)
      [    0.137844] PCI: MMCONFIG at [mem 0xf8000000-0xfbffffff] reserved in E820
- 
-   For enablling DCI you need do following:
+
+   For enabling DCI you need do following:
 
    1. Get PCI configuration space (from dev 0 reg 0x60) PCIBASE
       (generally 0xfe000000 for linux)
@@ -61,9 +61,9 @@ static int p2sb_dci_onoff(int f) {
     /* initalize p2sb bar0 to P2SB_BASE param */
     mmconfig = ioremap_nocache(PCI_BASE, 0xf9000 * 2);
     printk(KERN_INFO "[+] p2sb bar init, 0x%p+0x%x <= 0x%x\n", mmconfig, PCI_IDSEL_P2SB+PCI_BAR0, P2SB_BASE);
-    
+
     iowrite32(P2SB_BASE, mmconfig+PCI_IDSEL_P2SB+PCI_BAR0);
-    
+
     if (mmconfig) {
         iounmap(mmconfig);
         mmconfig = 0;
@@ -72,18 +72,18 @@ static int p2sb_dci_onoff(int f) {
     /******************************************/
     /* Set dci enable bit                     */
     p2sbbase = ioremap_nocache(P2SB_BASE+0xB80000, 4096);
-    
+
     pre = ioread32(p2sbbase+4);
     iowrite32(f ? 0x10 : 0, p2sbbase+4 );
     post = ioread32(p2sbbase+4);
-    
+
     printk(KERN_INFO "[+] p2sb dci enable, 0x%x => 0x%x\n", pre, post);
     if (post & 0x10) {
         printk(KERN_INFO "[+] dci enabled\n");
     } else {
         printk(KERN_INFO "[-] dci disabled\n");
     }
-    
+
     if (p2sbbase) {
         iounmap(p2sbbase);
         p2sbbase = 0;
@@ -107,7 +107,7 @@ DEFINE_SIMPLE_ATTRIBUTE(fops_debug, NULL, dci_status, "%llu\n");
 static int p2sb_init(void) {
 
     printk(KERN_INFO "[+] p2sb module enter\n");
-    
+
 #ifdef CONFIG_DEBUG_FS
     dirret = debugfs_create_dir("dci", NULL);
     if (dirret)
@@ -123,9 +123,9 @@ static void p2sb_exit(void) {
     printk(KERN_INFO "[+] p2sb module exit\n");
     if (mmconfig)
         iounmap(mmconfig);
-    if (p2sbbase) 
+    if (p2sbbase)
         iounmap(p2sbbase);
-    
+
     if (dirret)
         debugfs_remove_recursive(dirret);
     return;

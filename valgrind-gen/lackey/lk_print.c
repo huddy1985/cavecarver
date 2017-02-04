@@ -209,37 +209,54 @@ VG_REGPARM(3) void LK_(h64_binop_ct) ( IRStmt *stmt, ULong a, ULong b )
 
 VG_REGPARM(3) void LK_(h64_binop_tt) ( IRStmt *stmt, ULong a , ULong b )
 {
-    //ppIRStmt(stmt); vex_printf("0x%x\n", a);
-    H_WRTMP_BOOKKEEPING;
+    // //ppIRStmt(stmt); vex_printf("0x%x\n", a);
+    // H_WRTMP_BOOKKEEPING;
 
-    VG_(printf)("V h64_binop_tt\n");
+    // VG_(printf)("V h64_binop_tt\n");
 
-    H_EXIT_EARLY;
-    H_SMT2(smt2_binop_tt);
-    H64_PC_OP;
+    // H_EXIT_EARLY;
+    // H_SMT2(smt2_binop_tt);
+    // H64_PC_OP;
 
-    IROp op = stmt->Ist.WrTmp.data->Iex.Binop.op;
-    IRExpr* arg1 = stmt->Ist.WrTmp.data->Iex.Binop.arg1;
-    IRExpr* arg2 = stmt->Ist.WrTmp.data->Iex.Binop.arg2;
-    UInt rtmp1 = arg1->Iex.RdTmp.tmp;
-    UInt rtmp2 = arg2->Iex.RdTmp.tmp;
+    // IROp op = stmt->Ist.WrTmp.data->Iex.Binop.op;
+    // IRExpr* arg1 = stmt->Ist.WrTmp.data->Iex.Binop.arg1;
+    // IRExpr* arg2 = stmt->Ist.WrTmp.data->Iex.Binop.arg2;
+    // UInt rtmp1 = arg1->Iex.RdTmp.tmp;
+    // UInt rtmp2 = arg2->Iex.RdTmp.tmp;
 
 
-    VG_(snprintf)( aTmp1, sizeof(aTmp1), "t%d_%d = ",
-                   ltmp, (ltmp) );
-    VG_(snprintf)( aTmp2, sizeof(aTmp2), " t%d_%d t%d_%d",
-                   rtmp1, (rtmp1),
-                   rtmp2, (rtmp2) );
-    H64_PRINT_OP(a,b);
+    // VG_(snprintf)( aTmp1, sizeof(aTmp1), "t%d_%d = ",
+    //                ltmp, (ltmp) );
+    // VG_(snprintf)( aTmp2, sizeof(aTmp2), " t%d_%d t%d_%d",
+    //                rtmp1, (rtmp1),
+    //                rtmp2, (rtmp2) );
+    // H64_PRINT_OP(a,b);
 
-    // Information flow
-    VG_(printf)( "t%d_%d <- t%d_%d\n", ltmp, (ltmp), rtmp2, (rtmp2) );
+    // // Information flow
+    // VG_(printf)( "t%d_%d <- t%d_%d\n", ltmp, (ltmp), rtmp2, (rtmp2) );
 
 }
 
 VG_REGPARM(3) void LK_(h64_binop_cc) ( IRStmt *stmt, ULong a, ULong b )
 {
     VG_(printf)("V h64_binop_cc\n");
+}
+
+
+VG_REGPARM(3)
+void LK_(h32_get) (
+   IRStmt *clone,
+   UInt value,
+   UInt taint ) {
+    VG_(printf)("V h32_get\n");
+}
+
+VG_REGPARM(3)
+void LK_(h64_get) (
+   IRStmt *clone,
+   ULong value,
+   ULong taint ) {
+    VG_(printf)("V h64_get\n");
 }
 
 
