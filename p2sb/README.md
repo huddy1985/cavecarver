@@ -17,3 +17,5 @@
 
 To debug the target system you need to also enable "Debug Interface" option in the BIOS via i.e. AMIBCP or
 https://twitter.com/h0t_max/status/819237533775175681?s=03 . DCI can be enabled via AMIBCP as well.
+
+In the Intel SystemStudio DAL ConfigConsole.exe use SKL_SPT_DCI_ReferenceSettings and connect.
