@@ -3,7 +3,7 @@
 /*--- An example Valgrind tool.                          lk_main.c ---*/
 /*--------------------------------------------------------------------*/
 
-/*
+ /*
    This file is part of Lackey, an example Valgrind tool that does
    some simple program measurement and tracing.
 
@@ -168,44 +168,9 @@
 //  I  04014080,3
 //  I  04014083,6
 
-
-#include "pub_tool_basics.h"
-#include "pub_tool_tooliface.h"
-
-#include "pub_tool_vki.h"           // keeps libcproc.h happy, syscall nums
-#include "pub_tool_aspacemgr.h"     // VG_(am_shadow_alloc)
-#include "pub_tool_debuginfo.h"     // VG_(get_fnname_w_offset), VG_(get_fnname)
-#include "pub_tool_hashtable.h"     // For tnt_include.h, VgHashtable
-#include "pub_tool_libcassert.h"    // tl_assert
-#include "pub_tool_libcbase.h"      // VG_STREQN
-#include "pub_tool_libcprint.h"     // VG_(message)
-#include "pub_tool_libcproc.h"      // VG_(getenv)
-#include "pub_tool_replacemalloc.h" // VG_(replacement_malloc_process_cmd_line_option)
-#include "pub_tool_machine.h"       // VG_(get_IP)
-#include "pub_tool_mallocfree.h"    // VG_(out_of_memory_NORETURN)
-#include "pub_tool_options.h"       // VG_STR/BHEX/BINT_CLO
-#include "pub_tool_oset.h"          // OSet operations
-#include "pub_tool_threadstate.h"   // VG_(get_running_tid)
-#include "pub_tool_xarray.h"        // VG_(*XA)
-#include "pub_tool_stacktrace.h"    // VG_(get_and_pp_StackTrace)
-#include "pub_tool_libcfile.h"      // VG_(readlink)
-#include "pub_tool_addrinfo.h"      // VG_(describe_addr)
-
-
-#include "pub_tool_libcassert.h"
-#include "pub_tool_libcprint.h"
-#include "pub_tool_debuginfo.h"
-#include "pub_tool_libcbase.h"
-#include "pub_tool_options.h"
-#include "pub_tool_machine.h"     // VG_(fnptr_to_fnentry)
-
-#include <sys/syscall.h>
-
-#include "valgrind.h"
+#include "lackey.h"
 #include "distorm.h"
-#include "copy.h"
 
-#define LK_(str)    VGAPPEND(vgLackey_,str)
 
 /*------------------------------------------------------------*/
 /*--- Command line options                                 ---*/
@@ -215,7 +180,7 @@
  * the top of this file. */
 static Bool clo_basic_counts    = True;
 static Bool clo_detailed_counts = False;
-static Bool clo_trace_mem       = False;
+static Bool clo_trace_mem       = True;
 static Bool clo_trace_sbs       = False;
 static Int  clo_trace_match     = False;
 
@@ -324,9 +289,6 @@ static void add_one_inverted_Jcc_untaken(void)
 /*--- Stuff for --detailed-counts                          ---*/
 /*------------------------------------------------------------*/
 
-typedef
-   IRExpr
-   IRAtom;
 
 /* --- Operations --- */
 
@@ -482,12 +444,12 @@ typedef
    instrumentation IR for each event, in the order in which they
    appear. */
 
-#define ENABLE_OUTPUT 0
+#define ENABLE_OUTPUT 1
 
 static Event events[N_EVENTS];
 static Int   events_used = 0;
 //static VgFile *bin_file = 0;
-static int enable_trace = 0;
+static int enable_trace = 1;
 
 static VG_REGPARM(2) void trace_instr(Addr addr, SizeT size)
 {
@@ -719,183 +681,6 @@ static void lk_post_clo_init(void)
    }
 }
 
-/* vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv */
-/****************************************************************/
-/*************** taintgrind copy ********************************/
-typedef
-struct _LCEnv {
-  IRSB* sb;
-  int trace;
-  IRType hWordTy;
-} LCEnv;
-
-/* add stmt to a bb */
-static inline void stmt ( HChar cat, LCEnv* mce, IRStmt* st ) { //385
-   if (mce->trace) {
-      VG_(printf)("  %c: ", cat);
-      ppIRStmt(st);
-      VG_(printf)("\n");
-   }
-   addStmtToIRSB(mce->sb, st);
-}
-
-/* assign value to tmp */
-static inline
-void assign ( HChar cat, LCEnv* mce, IRTemp tmp, IRExpr* expr ) {
-   stmt(cat, mce, IRStmt_WrTmp(tmp,expr));
-}
-
-/* build various kinds of expressions *///400
-#define triop(_op, _arg1, _arg2, _arg3) \
-                                 IRExpr_Triop((_op),(_arg1),(_arg2),(_arg3))
-#define binop(_op, _arg1, _arg2) IRExpr_Binop((_op),(_arg1),(_arg2))
-#define unop(_op, _arg)          IRExpr_Unop((_op),(_arg))
-#define mkU1(_n)                 IRExpr_Const(IRConst_U1(_n))
-#define mkU8(_n)                 IRExpr_Const(IRConst_U8(_n))
-#define mkU16(_n)                IRExpr_Const(IRConst_U16(_n))
-#define mkU32(_n)                IRExpr_Const(IRConst_U32(_n))
-#define mkU64(_n)                IRExpr_Const(IRConst_U64(_n))
-#define mkV128(_n)               IRExpr_Const(IRConst_V128(_n))
-#define mkexpr(_tmp)             IRExpr_RdTmp((_tmp))
-
-/* Bind the given expression to a new temporary, and return the
-   temporary.  This effectively converts an arbitrary expression into
-   an atom.
-
-   'ty' is the type of 'e' and hence the type that the new temporary
-   needs to be.  But passing it in is redundant, since we can deduce
-   the type merely by inspecting 'e'.  So at least use that fact to
-   assert that the two types agree. */
-static IRAtom* assignNew ( HChar cat, LCEnv* mce, IRType ty, IRExpr* e ) //418
-{
-   IRTemp   t;
-   IRType   tyE = typeOfIRExpr(mce->sb->tyenv, e);
-   tl_assert(tyE == ty); /* so 'ty' is redundant (!) */
-   t = newIRTemp(mce->sb->tyenv, ty);
-   //t = newTemp(mce, ty, k);
-   assign(cat, mce, t, e);
-   return mkexpr(t);
-}
-
-static IRExpr* convert_Value( LCEnv* mce, IRAtom* value ){
-   IRType ty = typeOfIRExpr(mce->sb->tyenv, value);
-   IRType tyH = mce->hWordTy;
-   //   IRExpr* e;
-   if(tyH == Ity_I32){
-      switch( ty ){
-      case Ity_I1:
-         return assignNew( 'C', mce, tyH, unop(Iop_1Uto32, value) );
-      case Ity_I8:
-         return assignNew( 'C', mce, tyH, unop(Iop_8Uto32, value) );
-      case Ity_I16:
-         return assignNew( 'C', mce, tyH, unop(Iop_16Uto32, value) );
-      case Ity_I32:
-         return value;
-      case Ity_I64:
-         return assignNew( 'C', mce, tyH, unop(Iop_64to32, value) );
-      case Ity_F32:
-         return assignNew( 'C', mce, tyH, unop(Iop_ReinterpF32asI32, value) );
-      case Ity_F64:
-         return assignNew( 'C', mce, tyH, unop(Iop_64to32,
-            assignNew( 'C', mce, Ity_I64, unop(Iop_ReinterpF64asI64, value) ) ) );
-      case Ity_V128:
-         return assignNew( 'C', mce, tyH, unop(Iop_V128to32, value) );
-      default:
-         ppIRType(ty);
-         VG_(tool_panic)("tnt_translate.c: convert_Value");
-      }
-   }else if(tyH == Ity_I64){
-      switch( ty ){
-      case Ity_I1:
-         return assignNew( 'C', mce, tyH, unop(Iop_1Uto64, value) );
-      case Ity_I8:
-         return assignNew( 'C', mce, tyH, unop(Iop_8Uto64, value) );
-      case Ity_I16:
-         return assignNew( 'C', mce, tyH, unop(Iop_16Uto64, value) );
-      case Ity_I32:
-         return assignNew( 'C', mce, tyH, unop(Iop_32Uto64, value) );
-      case Ity_I64:
-         return value;
-      case Ity_I128:
-         return assignNew( 'C', mce, tyH, unop(Iop_128to64, value) );
-      case Ity_F32:
-         return assignNew( 'C', mce, tyH, unop(Iop_ReinterpF64asI64,
-              assignNew( 'C', mce, Ity_F64, unop(Iop_F32toF64, value) ) ) );
-      case Ity_F64:
-         return assignNew( 'C', mce, tyH, unop(Iop_ReinterpF64asI64, value) );
-      case Ity_V128:
-         return assignNew( 'C', mce, tyH, unop(Iop_V128to64, value) );
-      case Ity_V256:
-         // Warning: Only copies the least significant 64 bits, so there's info lost
-         return assignNew( 'C', mce, tyH, unop(Iop_V256to64_0, value) );
-      default:
-         ppIRType(ty);
-         VG_(tool_panic)("tnt_translate.c: convert_Value");
-      }
-   }else{
-         ppIRType(tyH);
-         VG_(tool_panic)("tnt_translate.c: convert_Value");
-   }
-}
-
-
-static
-VG_REGPARM(3) void LK_(h32_binop_tc) ( IRStmt *stmt, UInt a , UInt b )
-{
-}
-
-static
-VG_REGPARM(3) void LK_(h32_binop_ct) ( IRStmt *stmt, UInt a , UInt b )
-{
-}
-
-static
-VG_REGPARM(3) void LK_(h32_binop_tt) ( IRStmt *stmt, UInt a , UInt b )
-{
-  VG_(printf)(".");
-}
-
-static
-VG_REGPARM(3) void LK_(h32_binop_cc) ( IRStmt *stmt, UInt a , UInt b )
-{
-}
-
-
-static
-VG_REGPARM(3) void LK_(h64_binop_tc) ( IRStmt *stmt, ULong a , ULong b )
-{
-  if (a & 0xffff == 0xe91b) {
-    VG_(printf)("---------------------- found --------------------\n");
-  }
-
-}
-
-static
-VG_REGPARM(3) void LK_(h64_binop_ct) ( IRStmt *stmt, ULong a, ULong b )
-{
-  if (a & 0xffff == 0xe91b) {
-    VG_(printf)("---------------------- found --------------------\n");
-  }
-}
-
-static
-VG_REGPARM(3) void LK_(h64_binop_tt) ( IRStmt *stmt, ULong a , ULong b )
-{
-  //ppIRStmt(stmt); vex_printf("0x%x\n", a);
-
-  if (a & 0xffff == 0xe91b) {
-    VG_(printf)("---------------------- found --------------------\n");
-  }
-
-}
-
-static
-VG_REGPARM(3) void LK_(h64_binop_cc) ( IRStmt *stmt, ULong a, ULong b )
-{
-}
-
-
-/* ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ */
 
 
 static
@@ -1051,7 +836,7 @@ IRSB* lk_instrument ( VgCallbackClosure* closure,
                tl_assert(type != Ity_INVALID);
                switch (expr->tag) {
                   case Iex_Load:
-                    instrument_detail( sbOut, OpLoad, type, NULL/*guard*/ );
+                     instrument_detail( sbOut, OpLoad, type, NULL/*guard*/ );
                      break;
                   case Iex_Unop:
 	          case Iex_Binop:
@@ -1079,14 +864,14 @@ IRSB* lk_instrument ( VgCallbackClosure* closure,
 		/* add the wrtmp op now */
 		irstmt = IRStmt_WrTmp( tmp, expr );
 		addStmtToIRSB( sbOut, irstmt );
-		IROp op = expr->Iex.Binop.op;
+		IROp op = expr->Iex.Binop.op; (void)op;
 		IRExpr *arg1 = expr->Iex.Binop.arg1, *arg2 = expr->Iex.Binop.arg2;
 
 		/* prepare arguments for function call */
 		Int      nargs = 2;
 		IRExpr** args;
 		args  = mkIRExprVec_2( mkIRExpr_HWord((HWord)clone) ,
-				       convert_Value(&mce, IRExpr_RdTmp( tmp ))
+				       LK_(convert_Value)(&mce, IRExpr_RdTmp( tmp ))
 				       );
 
 		void*    fn;
@@ -1129,7 +914,7 @@ IRSB* lk_instrument ( VgCallbackClosure* closure,
 
 		IRDirty *d = unsafeIRDirty_0_N ( nargs/*regparms*/, nm, VG_(fnptr_to_fnentry)( fn ), args );
 
-		stmt( 'V', &mce, IRStmt_Dirty(d));
+		LK_(stmt)( 'V', &mce, IRStmt_Dirty(d));
 	      }
 	      break;
 	    default:
@@ -1504,3 +1289,14 @@ VG_DETERMINE_INTERFACE_VERSION(lk_pre_clo_init)
 /*--------------------------------------------------------------------*/
 /*--- end                                                lk_main.c ---*/
 /*--------------------------------------------------------------------*/
+
+/*
+  Local Variables:
+  compile-command:"gcc parse.c -o parse"
+  mode:c++
+  c-basic-offset:4
+  c-file-style:"bsd"
+  indent-tabs-mode:nil
+  fill-column:99
+  End:
+*/

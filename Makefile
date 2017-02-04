@@ -38,8 +38,18 @@ vb:
 vc:
 	cd valgrind-gen; make; make install
 
+ve:
+	export FLYCHECK_GENERIC_SRC=$(CURDIR)/valgrind-gen; \
+	export FLYCHECK_GENERIC_BUILD=$(CURDIR)/valgrind-gen; \
+	emacs -nw valgrind-gen/lackey
+
+ve_:
+	export FLYCHECK_GENERIC_SRC=$(CURDIR)/valgrind-gen; \
+	export FLYCHECK_GENERIC_BUILD=$(CURDIR)/valgrind-gen; \
+	emacs valgrind-gen/lackey/lk_main.c
+
 tags:
-	cd valgrind-gen; rm GPATH GRTAGS GTAGS
+	-cd valgrind-gen; rm GPATH GRTAGS GTAGS
 	cd valgrind-gen; find include VEX/pub VEX coregrind lackey taintgrind  -type f | grep -e '.c$$\|.h$$' | gtags -i -f -
 
 vg-taint-prep:
