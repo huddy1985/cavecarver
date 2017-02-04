@@ -248,7 +248,7 @@ void LK_(h32_get) (
    IRStmt *clone,
    UInt value,
    UInt taint ) {
-    VG_(printf)("V h32_get\n");
+    VG_(printf)("V h32_get: %d\n", value);
 }
 
 VG_REGPARM(3)
@@ -256,7 +256,7 @@ void LK_(h64_get) (
    IRStmt *clone,
    ULong value,
    ULong taint ) {
-    VG_(printf)("V h64_get\n");
+    VG_(printf)("V h64_get: %d\n", value);
 }
 
 

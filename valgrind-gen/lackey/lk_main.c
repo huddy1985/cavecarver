@@ -945,8 +945,8 @@ IRSB* lk_instrument ( VgCallbackClosure* closure,
                   IRType ty = expr->Iex.Get.ty;
 
                   Int      nargs = 2;
-                  args  = mkIRExprVec_2( mkIRExpr_HWord((HWord)clone),
-                                         LK_(convert_Value)( &mce, IRExpr_RdTmp( tmp ) ));
+                  args  = mkIRExprVec_2( mkIRExpr_HWord((HWord)offset),
+                                         mkIRExpr_HWord((HWord)offset ));
 
 		void*    fn;
 		const HChar*   nm;
