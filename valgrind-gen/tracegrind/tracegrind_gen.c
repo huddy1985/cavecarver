@@ -1,6 +1,7 @@
 #include "tracegrind.h"
 #include "distorm.h"
 
+
 /* vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv */
 /****************************************************************/
 
@@ -14,9 +15,12 @@ void traverse_expr(LCEnv *mce, IRExpr *e) {
     switch( e->tag ){
 
     case Iex_Get:
-        di = unsafeIRDirty_0_N( 1, "print_Get",
+        di = unsafeIRDirty_0_N( 0, "print_Get",
                                 VG_(fnptr_to_fnentry)( &TR_(print_Get) ),
                                 mkIRExprVec_1(mkIRExpr_HWord(e->Iex.Get.offset)) );
+        /* if using IRExpr_BBPTR():
+           patch VEC/priv/ir_defs.c at "but no fxState declared"
+         */
 
         addStmtToIRSB( mce->sb, IRStmt_Dirty(di) );
 

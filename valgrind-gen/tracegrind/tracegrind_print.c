@@ -1,5 +1,7 @@
 #include "tracegrind.h"
 
+#include "../coregrind/pub_core_threadstate.h"
+
 /* vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv */
 /****************************************************************/
 /*************** taintgrind copy ********************************/
@@ -256,22 +258,31 @@ void TR_(h64_get) (
    IRStmt *clone,
    ULong value,
    ULong taint ) {
+#ifndef DISABLE_PRINTF
     VG_(printf)("V h64_get: %d\n", value);
+#endif
 }
 
 
 /******************************************************************/
 
-VG_REGPARM(2) void TR_(print_Get)(Int offset)
+VG_REGPARM(2) void TR_(print_Get)(/*VexGuestAMD64State* gst, */Int offset)
 {
-    VG_(printf)("> Get: %d\n", offset);
+#ifndef DISABLE_PRINTF
+    ThreadId tid = VG_(get_running_tid)();
+    ThreadState *threadstate = VG_(get_ThreadState)(tid);
+    VexGuestAMD64State* gst = &threadstate->arch.vex;
+    VG_(printf)("> Get: %p %d\n", gst, offset);
+#endif
 }
 
 VG_REGPARM(2) void TR_(print_ir)(IRStmt *clone)
 {
+#ifndef DISABLE_PRINTF
     VG_(printf)("p ");
     ppIRStmt(clone);
     VG_(printf)("\n");
+#endif
 }
 
 

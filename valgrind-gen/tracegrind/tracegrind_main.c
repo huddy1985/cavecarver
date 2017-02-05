@@ -311,11 +311,12 @@ static VG_REGPARM(2) void trace_instr(Addr addr, SizeT size)
 
     res = distorm_decode(addr, (const unsigned char*)(uint8_t*)addr, addr+size, Decode64Bits, decodedInstructions, 1, &decodedInstructionsCount);
 
+#ifndef DISABLE_PRINTF
     VG_(printf)("I  %llx %-24s %s%s%s\r\n", (long long)decodedInstructions[0].offset,
 	   (char*)decodedInstructions[0].instructionHex.p,
 	   (char*)decodedInstructions[0].mnemonic.p, decodedInstructions[0].operands.length != 0 ? " " : "",
 	   (char*)decodedInstructions[0].operands.p);
-
+#endif
   }
 
   //VG_(printf)("\n");
