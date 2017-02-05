@@ -311,7 +311,7 @@ static VG_REGPARM(2) void trace_instr(Addr addr, SizeT size)
 
     res = distorm_decode(addr, (const unsigned char*)(uint8_t*)addr, addr+size, Decode64Bits, decodedInstructions, 1, &decodedInstructionsCount);
 
-    VG_(printf)("---------\nI  %llx %-24s %s%s%s\r\n", (long long)decodedInstructions[0].offset,
+    VG_(printf)("I  %llx %-24s %s%s%s\r\n", (long long)decodedInstructions[0].offset,
 	   (char*)decodedInstructions[0].instructionHex.p,
 	   (char*)decodedInstructions[0].mnemonic.p, decodedInstructions[0].operands.length != 0 ? " " : "",
 	   (char*)decodedInstructions[0].operands.p);
@@ -585,7 +585,22 @@ IRSB* lk_instrument ( VgCallbackClosure* closure,
          addStmtToIRSB( sbOut, IRStmt_Dirty(di) );
       }
 
+      /**************************/
       traverse_stmt(&mce, st);
+
+      {
+          IRDirty *di2;
+          IRStmt *clone = deepMallocIRStmt(st);
+
+          di2 = unsafeIRDirty_0_N( 1, "print_ir",
+                                  VG_(fnptr_to_fnentry)( &TR_(print_ir) ),
+                                  mkIRExprVec_1(mkIRExpr_HWord((HWord)clone)) );
+
+          addStmtToIRSB( mce.sb, IRStmt_Dirty(di2) );
+      }
+
+      /**************************/
+
 
       switch (st->tag) {
          case Ist_NoOp:
@@ -1067,6 +1082,8 @@ static void lk_pre_clo_init(void)
                                     lk_post_syscall );
 
    VG_(track_new_mem_mmap)        ( lk_new_mem_mmap );
+
+   VG_(clo_vex_control).iropt_register_updates_default = VexRegUpdAllregsAtEachInsn;
 
 }
 

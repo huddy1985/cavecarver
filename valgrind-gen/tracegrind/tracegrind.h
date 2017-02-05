@@ -63,6 +63,9 @@ VG_REGPARM(3) void TR_(h64_binop_cc) ( IRStmt *stmt, ULong a, ULong b );
 VG_REGPARM(3) void TR_(h32_get) (IRStmt *clone, UInt value, UInt taint );
 VG_REGPARM(3) void TR_(h64_get) (IRStmt *clone, ULong value, ULong taint );
 
+VG_REGPARM(2) void TR_(print_Get)(Int offset);
+VG_REGPARM(2) void TR_(print_ir)(IRStmt *clone);
+
 void traverse_stmt(LCEnv *mce, IRStmt* st) ;
 void traverse_expr(LCEnv *mce, IRExpr *e) ;
 

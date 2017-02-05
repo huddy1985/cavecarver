@@ -260,6 +260,21 @@ void TR_(h64_get) (
 }
 
 
+/******************************************************************/
+
+VG_REGPARM(2) void TR_(print_Get)(Int offset)
+{
+    VG_(printf)("> Get: %d\n", offset);
+}
+
+VG_REGPARM(2) void TR_(print_ir)(IRStmt *clone)
+{
+    VG_(printf)("p ");
+    ppIRStmt(clone);
+    VG_(printf)("\n");
+}
+
+
 /* ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ */
 
 /*

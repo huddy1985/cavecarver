@@ -4,20 +4,28 @@
 /* vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv */
 /****************************************************************/
 
-
-
 void traverse_expr(LCEnv *mce, IRExpr *e) {
 
     int i;
+    IRDirty*   di;
     if (!e)
         return;
 
     switch( e->tag ){
 
     case Iex_Get:
+        di = unsafeIRDirty_0_N( 1, "print_Get",
+                                VG_(fnptr_to_fnentry)( &TR_(print_Get) ),
+                                mkIRExprVec_1(mkIRExpr_HWord(e->Iex.Get.offset)) );
+
+        addStmtToIRSB( mce->sb, IRStmt_Dirty(di) );
+
+
+
         break;
     case Iex_GetI:
         break;
+
     case Iex_RdTmp:
         break;
 
@@ -81,10 +89,14 @@ void traverse_expr(LCEnv *mce, IRExpr *e) {
 void traverse_stmt(LCEnv *mce, IRStmt* st) {
 
     switch (st->tag) {
+
+    case Ist_Put:
+        break;
+    case Ist_PutI:
+        break;
+
     case Ist_NoOp:
     case Ist_AbiHint:
-    case Ist_Put:
-    case Ist_PutI:
     case Ist_MBE:
         break;
     case Ist_IMark:
@@ -109,10 +121,18 @@ void traverse_stmt(LCEnv *mce, IRStmt* st) {
     case Ist_Dirty:
         break;
     case Ist_CAS:
+        traverse_expr(mce, st->Ist.CAS.details->addr) ;
+        traverse_expr(mce, st->Ist.CAS.details->expdHi) ;
+        traverse_expr(mce, st->Ist.CAS.details->expdLo) ;
+        traverse_expr(mce, st->Ist.CAS.details->dataHi) ;
+        traverse_expr(mce, st->Ist.CAS.details->dataLo) ;
         break;
     case Ist_LLSC:
+        traverse_expr(mce, st->Ist.LLSC.addr) ;
+        traverse_expr(mce, st->Ist.LLSC.storedata) ;
         break;
     case Ist_Exit:
+        traverse_expr(mce, st->Ist.Exit.guard) ;
         break;
     default:
         break;
