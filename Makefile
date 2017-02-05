@@ -39,7 +39,7 @@ vc:
 	cd valgrind-gen; make; make install
 
 vr:
-	$(HOME)/bin-valgrind/bin/valgrind --tool=lackey ls
+	$(HOME)/bin-valgrind/bin/valgrind --tool=tracegrind ls
 
 ve:
 	export FLYCHECK_GENERIC_SRC=$(CURDIR)/valgrind-gen; \
