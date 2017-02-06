@@ -265,16 +265,39 @@ void TR_(h64_get) (
 
 
 /******************************************************************/
+static void print_reg(VexGuestAMD64State* gst, Int offset, Int size)
+{
+    int i;
+    for (i = size-1; i >= 0; i--) {
+        VG_(printf)("%02x", ((unsigned char*)gst)[offset+i]);
+    }
+}
 
-VG_REGPARM(2) void TR_(print_Get)(/*VexGuestAMD64State* gst, */Int offset)
+
+VG_REGPARM(2) void TR_(print_Get)(/*VexGuestAMD64State* gst, */Int offset, Int size)
 {
 #ifndef DISABLE_PRINTF
     ThreadId tid = VG_(get_running_tid)();
     ThreadState *threadstate = VG_(get_ThreadState)(tid);
     VexGuestAMD64State* gst = &threadstate->arch.vex;
-    VG_(printf)("> Get: %p %d\n", gst, offset);
+    VG_(printf)("> Get: %03d , sz:%03d: ", offset, size);
+    print_reg(gst, offset, size);
+    VG_(printf)("\n");
 #endif
 }
+
+VG_REGPARM(2) void TR_(print_Put)(/*VexGuestAMD64State* gst, */Int offset, Int size)
+{
+#ifndef DISABLE_PRINTF
+    ThreadId tid = VG_(get_running_tid)();
+    ThreadState *threadstate = VG_(get_ThreadState)(tid);
+    VexGuestAMD64State* gst = &threadstate->arch.vex;
+    VG_(printf)("> Put: %03d , sz:%03d: ", offset, size);
+    print_reg(gst, offset, size);
+    VG_(printf)("\n");
+#endif
+}
+
 
 VG_REGPARM(2) void TR_(print_ir)(IRStmt *clone)
 {

@@ -17,7 +17,9 @@ void traverse_expr(LCEnv *mce, IRExpr *e) {
     case Iex_Get:
         di = unsafeIRDirty_0_N( 0, "print_Get",
                                 VG_(fnptr_to_fnentry)( &TR_(print_Get) ),
-                                mkIRExprVec_1(mkIRExpr_HWord(e->Iex.Get.offset)) );
+                                mkIRExprVec_2(mkIRExpr_HWord(e->Iex.Get.offset),
+                                              mkIRExpr_HWord(sizeofIRType(e->Iex.Get.ty)))
+            );
         /* if using IRExpr_BBPTR():
            patch VEC/priv/ir_defs.c at "but no fxState declared"
          */
