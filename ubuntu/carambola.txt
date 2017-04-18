@@ -1,0 +1,53 @@
+---------------------------
+
+echo 1 > /proc/sys/net/ipv4/conf/all/proxy_arp
+route add default gw 192.168.20.1
+# 192.168.20.2
+
+iptables -F
+iptables -X
+iptables -t nat -F
+iptables -t nat -X
+iptables -t mangle -F
+iptables -t mangle -X
+iptables -P INPUT ACCEPT
+iptables -P OUTPUT ACCEPT
+iptables -P FORWARD ACCEPT
+
+iptables -t nat -A POSTROUTING -o eth1 -j MASQUERADE
+iptables -A FORWARD -i eth1 -o br-lan -m state --state RELATED,ESTABLISHED -j ACCEPT
+iptables -A FORWARD -i br-lan -o eth1 -j ACCEPT
+
+----- /etc/config/dhcp -------
+
+config dnsmasq
+        option domainneeded '1'
+	option boguspriv '1'
+	...
+	list server '8.8.8.8'
+
+
+----- /etc/config/network -------
+
+config interface 'wan'
+        option ifname 'eth1'
+	option proto 'static'
+	option ipaddr '192.168.20.2'
+	option netmask '255.255.255.0'
+	option proto 'dhcp'
+
+
+----------- router -----------
+
+route del default gw  0.0.0.0 eth1
+ifconfig eth1 up 192.168.20.1 netmask 255.255.255.0
+echo 1 > /proc/sys/net/ipv4/conf/all/proxy_arp
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+iptables -A FORWARD -i eth0 -o eth1 -m state --state RELATED,ESTABLISHED -j ACCEPT
+iptables -A FORWARD -i eth1 -o eth0 -j ACCEPT
+
+ifconfig eth1 up 192.168.20.1 netmask 255.255.255.0
+
+
