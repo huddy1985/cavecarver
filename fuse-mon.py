@@ -113,8 +113,8 @@ class Passthrough(Operations):
         f = os.open(full_path, flags)
         self.m[f] = full_path;
         print("Open '%s'" %(full_path))
-        return f
-
+        return f   
+    
     def create(self, path, mode, fi=None):
         full_path = self._full_path(path)
         f = os.open(full_path, os.O_WRONLY | os.O_CREAT, mode)
@@ -122,9 +122,26 @@ class Passthrough(Operations):
         return f
 
     def read(self, path, length, offset, fh):
+
+        def getchar():
+            #Returns a single character from standard input
+            import tty, termios, sys
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            try:
+                tty.setraw(sys.stdin.fileno())
+                ch = sys.stdin.read(1)
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            return ch
+
+        
         path = self.m[fh]
         os.lseek(fh, offset, os.SEEK_SET)
         print(" +read '%s' : [%d-%d]" %(path,offset,offset+length))
+        print("Press char\n");
+        char = getchar()
+        
         return os.read(fh, length)
 
     def write(self, path, buf, offset, fh):

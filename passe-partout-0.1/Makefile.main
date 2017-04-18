@@ -1,12 +1,12 @@
 CC=gcc
 BIN=passe-partout
 OBJS=dbg.o $(BIN).o
-LDFLAGS=-lcrypto
+LDFLAGS=-lcrypto -lssl
 
 all: $(LIB) $(BIN)
 
 $(BIN): $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $(LDFLAGS) $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS) 
 
 %.o: %.c
 	$(CC) $(CFLAGS) -Wall -g -o $@ -c $<
