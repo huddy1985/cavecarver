@@ -1,3 +1,13 @@
+https://www.ossramblings.com/whitelisting-ipaddress-with-iptables-ipset
+http://www.ipdeny.com/ipblocks/
+
+---------------------------
+log dropped:
+iptables -N LOGGING
+iptables -A INPUT -j LOGGING
+iptables -A LOGGING -m limit --limit 2/min -j LOG --log-prefix "IPTables-Dropped: " --log-level 4
+iptables -A LOGGING -j DROP
+
 ---------------------------
 
 echo 1 > /proc/sys/net/ipv4/conf/all/proxy_arp
