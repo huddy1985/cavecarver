@@ -39,3 +39,14 @@ strace -f -e trace=execve -v -s 100000 <cmd>
 -f : follow clone
 -e : filter execve
 -v : print env
+
+to get execve printout with cwd path patch <strace>/execve.c:
+
+        function decode_execve(struct tcb *tcp, const unsigned int index)
+        {...
+	 (abbrev(tcp) ? printargc : printargv) (tcp, tcp->u_arg[index + 2]);
+	+char b[PATH_MAX]; char fn[PATH_MAX];
+	+sprintf(b, "/proc/%d/cwd", tcp->pid);
+	+realpath(b,fn);
+	+tprintf(", [cwd:%s]", fn);
+         ...
