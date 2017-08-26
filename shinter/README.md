@@ -1,7 +1,7 @@
 shinterposer
 ============
 
-Simple script to log and filter commands (i.e. gcc) and save the enviroment (env variables, current working directory and arguments) to be able to later restart the command. 
+Simple script to log and filter commands (i.e. gcc) and save the enviroment (env variables, current working directory and arguments) to be able to later restart the command.
 
 shpreload.so
 ============
@@ -30,3 +30,12 @@ addition: mod/interpose.ko
 ==========================
 
 x86_64 kernel module that hooks into syscall execve and exposes [bin,cwd,argp,envp] at /sys/kernel/debug/interpose/execve.
+
+simple strace version
+=====================
+
+strace -f -e trace=execve -v -s 100000 <cmd>
+
+-f : follow clone
+-e : filter execve
+-v : print env
