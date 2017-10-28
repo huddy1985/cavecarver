@@ -4,14 +4,17 @@ go get git.torproject.org/pluggable-transports/obfs4.git/obfs4proxy
 cp ${HOME}/go-w/bin/obfs4proxy .
 
 apt-get install python3
+- modify standalone_server_config.ini [common]:
+  forward = 127.0.0.1:<port>
+- start server and extract cert from state/obfs4_bridge.json or "-v -v" printout
 - modify standalone_client_config.ini [obfs4-client1]:
  listen-addr = 127.0.0.1
  listen-port = 8000 
  server-addr = <remote-server-addr>
  server-port = 7900
-- modify standalone_server_config.ini [common]:
- forward = 127.0.0.1:<port>
-
+ options-cert = <cert-from-swerver>
+ options-iat-mode = 0
+ 
 ###########
 iptables -F
 iptables -P INPUT DROP
