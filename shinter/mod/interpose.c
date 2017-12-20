@@ -30,6 +30,7 @@ void **syscall_table = (void **)SYSCALL_TABLE;  /* use "make get" to retrive */
 #define LOG_ARG  (1<<1)
 #define LOG_ENV  (1<<2)
 #define LOG_PATH (1<<3)
+#define LOG_PID  (1<<4)
 
 static int dbgflags = LOG_NAME /*| LOG_PATH | LOG_ENV | LOG_ARG*/;
 module_param(dbgflags, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
@@ -109,6 +110,72 @@ out:
 	return ret;
 }
 
+struct save_cl {
+    void *addr;
+    unsigned char b[5];
+};
+
+struct save_cl save_SyS_clone, save_sys_fork, save_sys_vfork;
+
+long (*original_SyS_clone)(unsigned long clone_flags, unsigned long newsp, int * parent_tidptr, int * child_tidptr, unsigned long tls) = (void*)SyS_clone;
+long (*original_sys_fork)(void) = (void*)sys_fork;
+long (*original_sys_vfork)(void) = (void*)sys_vfork;
+
+long new_SyS_clone(unsigned long clone_flags, unsigned long newsp, int * parent_tidptr, int * child_tidptr, unsigned long tls)
+{
+    int pid = current->pid;
+    long npid = original_SyS_clone(clone_flags, newsp, parent_tidptr, child_tidptr, tls);
+    sysfsdebug(&g_interpose, LOG_NAME, "+ %d->%d", pid, (int)npid);
+    return npid;
+}
+
+long new_sys_fork(void)
+{
+    int pid = current->pid;
+    long npid = original_sys_fork();
+    sysfsdebug(&g_interpose, LOG_NAME, "+ %d->%d", pid, (int)npid);
+    return npid;
+}
+
+long new_sys_vfork(void)
+{
+    int pid = current->pid;
+    long npid = original_sys_vfork();
+    sysfsdebug(&g_interpose, LOG_NAME, "+ %d->%d", pid, (int)npid);
+    return npid;
+}
+
+/*
+ffffffff81891440 <stub_fork>:
+ffffffff81891440:	4c 89 7c 24 08       	mov    %r15,0x8(%rsp)
+ffffffff81891445:	4c 89 74 24 10       	mov    %r14,0x10(%rsp)
+ffffffff8189144a:	4c 89 6c 24 18       	mov    %r13,0x18(%rsp)
+ffffffff8189144f:	4c 89 64 24 20       	mov    %r12,0x20(%rsp)
+ffffffff81891454:	48 89 6c 24 28       	mov    %rbp,0x28(%rsp)
+ffffffff81891459:	48 89 5c 24 30       	mov    %rbx,0x30(%rsp)
+ffffffff8189145e:	e9 2d 27 7c ff       	jmpq   ffffffff81053b90 <sys_fork>
+ffffffff81891463:	0f 1f 00             	nopl   (%rax)
+ffffffff81891466:	66 2e 0f 1f 84 00 00 	nopw   %cs:0x0(%rax,%rax,1)
+*/
+
+void patch_clone(int nr, void *faddr, struct save_cl *cl) {
+
+    void *syscalladdr = (void *)syscall_table[nr];
+    long addr = ((long)syscalladdr) + (6 * 5); long diff;
+    unsigned char b[5] = { 0xe9, 0, 0, 0, 0 };
+
+    memcpy(cl->b, (void*)addr, 5);
+    cl->addr = (void*)addr;
+
+    diff = ((long)(void*)faddr)-(addr+5);
+    b[1] = diff & 0xff;
+    b[2] = (diff>>8) & 0xff;
+    b[3] = (diff>>16) & 0xff;
+    b[4] = (diff>>24) & 0xff;
+    probe_kernel_write((void*)addr, b, 5);
+
+}
+
 asmlinkage int (*original_execve)(const char *,
 				  const char __user *const __user *,
 				  const char __user *const __user *);
@@ -124,7 +191,7 @@ asmlinkage int new_execve(const char *p,
 	int argc, envc; char *ptr;
 
 	/* executable to load */
-	sysfsdebug(&g_interpose, LOG_NAME, "+ execve:%s", p);
+	sysfsdebug(&g_interpose, LOG_NAME, "+ %d.%d:execve:%s", current->real_parent? current->real_parent->pid : -1, current->pid, p);
 
 	/* current working dir */
 	if (dbgflags & LOG_PATH) {
@@ -188,6 +255,15 @@ static int interpose_init(void) {
 	b[4] = (diff>>24) & 0xff;
 	probe_kernel_write((void*)addr, b, 5);
 
+/*
+#define __NR_clone 56
+#define __NR_fork 57
+#define __NR_vfork 58
+*/
+	patch_clone(__NR_clone, (void*)&new_SyS_clone, &save_SyS_clone);
+	patch_clone(__NR_fork, (void*)&new_sys_fork, &save_sys_fork);
+	patch_clone(__NR_vfork, (void*)&new_sys_vfork, &save_sys_vfork);
+
 	//syscall_table[__NR_execve] = (void*)&new_execve;
 	printk(KERN_ALERT "[+] protect\n");
 	write_cr0 (read_cr0 () | 0x10000);
@@ -201,6 +277,10 @@ static void interpose_exit(void) {
 
 	printk(KERN_ALERT "[+] restore execve\n");
 	probe_kernel_write(oldcodep, (void*)oldcall, 5);
+
+	probe_kernel_write(save_SyS_clone.addr, save_SyS_clone.b, 5);
+	probe_kernel_write(save_sys_fork.addr, save_sys_fork.b, 5);
+	probe_kernel_write(save_sys_vfork.addr, save_sys_vfork.b, 5);
 
 	write_cr0 (read_cr0 () | 0x10000);
 
