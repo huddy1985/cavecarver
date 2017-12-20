@@ -5,6 +5,7 @@
 #include <asm/unistd.h>
 #include <asm/pgtable_types.h>
 #include <linux/highmem.h>
+#include <linux/syscalls.h>
 #include "interpose.h"
 #include "log.h"
 #include "log.c"
@@ -30,7 +31,7 @@ void **syscall_table = (void **)SYSCALL_TABLE;  /* use "make get" to retrive */
 #define LOG_ENV  (1<<2)
 #define LOG_PATH (1<<3)
 
-static int dbgflags = LOG_PATH | LOG_NAME | LOG_ENV | LOG_ARG;
+static int dbgflags = LOG_NAME /*| LOG_PATH | LOG_ENV | LOG_ARG*/;
 module_param(dbgflags, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(dbgflags, "logging flags, 1:name logging");
 
@@ -116,6 +117,8 @@ asmlinkage int (*original_getcwd)(char __user *buf, unsigned long size);
 asmlinkage int new_execve(const char *p,
 			  const char __user *const __user *argp,
 			  const char __user *const __user *envp) {
+    //printk("test\n");
+    //return original_execve(p, argp, envp);
 
 	mm_segment_t fs;
 	int argc, envc; char *ptr;
@@ -124,15 +127,17 @@ asmlinkage int new_execve(const char *p,
 	sysfsdebug(&g_interpose, LOG_NAME, "+ execve:%s", p);
 
 	/* current working dir */
-	ptr = kmalloc(MAX_PATH+1, GFP_KERNEL);
-	if (ptr) {
+	if (dbgflags & LOG_PATH) {
+	    ptr = kmalloc(MAX_PATH+1, GFP_KERNEL);
+	    if (ptr) {
 
-	  fs = get_fs();
-	  set_fs (get_ds());
-	  original_getcwd(ptr, PATH_MAX);
-	  set_fs(fs);
-	  sysfsdebug(&g_interpose, LOG_PATH, "pwd:%s", ptr);
-	  kfree(ptr);
+		fs = get_fs();
+		set_fs (get_ds());
+		original_getcwd(ptr, PATH_MAX);
+		set_fs(fs);
+		sysfsdebug(&g_interpose, LOG_PATH, "pwd:%s", ptr);
+		kfree(ptr);
+	    }
 	}
 
 	/* arg and env */
@@ -148,7 +153,13 @@ asmlinkage int new_execve(const char *p,
 	return (*original_execve)(p, argp, envp);
 }
 
+unsigned char oldcall[5];
+void *oldcodep;
+
 static int interpose_init(void) {
+
+    long addr, diff;
+    unsigned char b[5] = { 0xe8, 0, 0, 0, 0 };
 
 	spin_lock_init(&g_interpose.lock);
 	interpose_text_init(&g_interpose);
@@ -157,13 +168,27 @@ static int interpose_init(void) {
 	write_cr0 (read_cr0 () & (~ 0x10000));
 
 	printk(KERN_ALERT "[+] save old execve\n");
-	original_execve = (void *)syscall_table[__NR_execve];
+	original_execve = oldcodep = (void *)syscall_table[__NR_execve];
 	printk(KERN_ALERT "[+] save getcwd\n");
 	original_getcwd = (void *)syscall_table[__NR_getcwd];
 
-	printk(KERN_ALERT "[+] install new execve\n");
-	syscall_table[__NR_execve] = (void*)&new_execve;
+	printk(KERN_ALERT "[+] install new execve %p\n", (void*)&new_execve);
 
+	addr = (long)original_execve;
+
+	original_execve = (void*)sys_execve;
+
+	memcpy(&oldcall, (void*)addr, 5);
+
+	/* patch the stub_execve call */
+	diff = ((long)(void*)&new_execve)-(addr+5);
+	b[1] = diff & 0xff;
+	b[2] = (diff>>8) & 0xff;
+	b[3] = (diff>>16) & 0xff;
+	b[4] = (diff>>24) & 0xff;
+	probe_kernel_write((void*)addr, b, 5);
+
+	//syscall_table[__NR_execve] = (void*)&new_execve;
 	printk(KERN_ALERT "[+] protect\n");
 	write_cr0 (read_cr0 () | 0x10000);
 
@@ -175,7 +200,7 @@ static void interpose_exit(void) {
 	write_cr0 (read_cr0 () & (~ 0x10000));
 
 	printk(KERN_ALERT "[+] restore execve\n");
-	syscall_table[__NR_execve] = (void *) original_execve;
+	probe_kernel_write(oldcodep, (void*)oldcall, 5);
 
 	write_cr0 (read_cr0 () | 0x10000);
 

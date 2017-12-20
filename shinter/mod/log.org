@@ -1,0 +1,2 @@
+Add to grub:
+nokaslr nosmep nosmap

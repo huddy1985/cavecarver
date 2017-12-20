@@ -1,1 +1,1 @@
-cmd_/home/eiselekd/git/shinterposer/mod/interpose.ko := ld -r -m elf_x86_64 -T ./scripts/module-common.lds --build-id  -o /home/eiselekd/git/shinterposer/mod/interpose.ko /home/eiselekd/git/shinterposer/mod/interpose.o /home/eiselekd/git/shinterposer/mod/interpose.mod.o
+cmd_/home/eiselekd/git/cavecarver/shinter/mod/interpose.ko := ld -r -m elf_x86_64 -T ./scripts/module-common.lds --build-id  -o /home/eiselekd/git/cavecarver/shinter/mod/interpose.ko /home/eiselekd/git/cavecarver/shinter/mod/interpose.o /home/eiselekd/git/cavecarver/shinter/mod/interpose.mod.o
