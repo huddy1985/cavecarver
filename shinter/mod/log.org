@@ -1,2 +1,8 @@
 Add to grub:
 nokaslr nosmep nosmap
+
+x86:
+sys_exeve has to be exported
+
+arm:
+fixmap_x has to be exported
