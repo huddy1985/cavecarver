@@ -33,7 +33,7 @@ di:
 	cd distorm; make
 
 vb:
-	cd valgrind-gen; bash  autogen.sh; ./configure --prefix=$(HOME)/bin-valgrind
+	cd valgrind-gen; bash  autogen.sh; ./configure --prefix=$(HOME)/bin-valgrind --enable-only64bit
 
 vc:
 	cd valgrind-gen; make; make install
