@@ -41,3 +41,5 @@ writes over its content. It searches for the .dynamic section and removes the
 versioning references. The code is inspired by: http://vxheaven.org/lib/var00.html
 and http://vxheaven.org/lib/vzo08.html
 
+# add qmp wrpy and rdpy cmd
+Use qemu qmp to connect with pcileech
