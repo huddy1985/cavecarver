@@ -1429,6 +1429,25 @@ static void hmp_physical_memory_dump(Monitor *mon, const QDict *qdict)
     memory_dump(mon, count, format, size, addr, 1);
 }
 
+static void hmp_physical_memory_write(Monitor *mon, const QDict *qdict)
+{
+    int count = qdict_get_int(qdict, "count"); (void)count;
+    int format = qdict_get_int(qdict, "format"); (void)format;
+    int size = qdict_get_int(qdict, "size");
+    hwaddr addr = qdict_get_int(qdict, "addr");
+    int data = qdict_get_int(qdict, "data");
+
+    uint8_t buf[16];
+    memcpy(buf, &data, sizeof(int)); // little endian
+
+    if (size > sizeof(int)) {
+        monitor_printf(mon, "Length is too big, max sizeof(int)==%d, given: %d\n", (int)sizeof(int), size);
+        return;
+    }
+
+    cpu_physical_memory_write(addr, buf, size);
+}
+
 static void *gpa2hva(MemoryRegion **p_mr, hwaddr addr, Error **errp)
 {
     MemoryRegionSection mrs = memory_region_find(get_system_memory(),
@@ -2649,11 +2668,11 @@ static int default_fmt_size = 4;
 static int is_valid_option(const char *c, const char *typestr)
 {
     char option[3];
-  
+
     option[0] = '-';
     option[1] = *c;
     option[2] = '\0';
-  
+
     typestr = strstr(typestr, option);
     return (typestr != NULL);
 }
@@ -3020,7 +3039,7 @@ static QDict *monitor_parse_arguments(Monitor *mon,
                     p++;
                     if(c != *p) {
                         if(!is_valid_option(p, typestr)) {
-                  
+
                             monitor_printf(mon, "%s: unsupported option -%c\n",
                                            cmd->name, *p);
                             goto fail;

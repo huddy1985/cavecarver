@@ -459,6 +459,20 @@ Virtual memory dump starting at @var{addr}.
 ETEXI
 
     {
+        .name       = "wp",
+        .args_type  = "fmt:/,addr:l,data:l",
+        .params     = "/fmt addr data",
+        .help       = "virtual memory write starting at 'addr'",
+        .cmd        = hmp_physical_memory_write,
+    },
+
+STEXI
+@item wp/fmt @var{addr}
+@findex wp
+Physical memory write starting at @var{addr}.
+ETEXI
+
+    {
         .name       = "xp",
         .args_type  = "fmt:/,addr:l",
         .params     = "/fmt addr",
