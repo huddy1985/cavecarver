@@ -72,6 +72,18 @@ VG_REGPARM(2) void TR_(print_ir)(IRStmt *clone);
 void traverse_stmt(LCEnv *mce, IRStmt* st) ;
 void traverse_expr(LCEnv *mce, IRExpr *e) ;
 
+
+/* !! ABIWARNING !! ABIWARNING !! ABIWARNING !! ABIWARNING !!
+   This enum comprises an ABI exported by Valgrind to programs
+   which use client requests.  DO NOT CHANGE THE ORDER OF THESE
+   ENTRIES, NOR DELETE ANY -- add new ones at the end. */
+typedef
+   enum {
+    VG_USERREQ__MAKE_TRACEGRIND_ONOFF = VG_USERREQ_TOOL_BASE('T','G'),
+} Vg_TracegrindClientRequest;
+
+Bool lk_handle_client_request ( ThreadId tid, UWord* arg, UWord* ret );
+
 				/*
 #define DISABLE_PRINTF
 				 */

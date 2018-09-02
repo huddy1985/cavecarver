@@ -1,4 +1,4 @@
-#°/bin/bash
+#!/bin/bash
 #set -x
 n=$1
 s=$2

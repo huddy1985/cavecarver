@@ -264,6 +264,8 @@ void TR_(h64_get) (
 }
 
 
+#define DISABLE_PRINTF
+
 /******************************************************************/
 static void print_reg(VexGuestAMD64State* gst, Int offset, Int size)
 {

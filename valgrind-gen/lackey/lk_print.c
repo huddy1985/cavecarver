@@ -169,41 +169,41 @@ IRExpr* LK_(convert_Value)( LCEnv* mce, IRAtom* value ){
 
 VG_REGPARM(3) void LK_(h32_binop_tc) ( IRStmt *stmt, UInt a , UInt b )
 {
-    VG_(printf)("V h32_binop_tc\n");
+//    VG_(printf)("V h32_binop_tc\n");
 }
 
 VG_REGPARM(3) void LK_(h32_binop_ct) ( IRStmt *stmt, UInt a , UInt b )
 {
-    VG_(printf)("V h32_binop_ct\n");
+//    VG_(printf)("V h32_binop_ct\n");
 }
 
 VG_REGPARM(3) void LK_(h32_binop_tt) ( IRStmt *stmt, UInt a , UInt b )
 {
-    VG_(printf)("V h32_binop_tt\n");
+//    VG_(printf)("V h32_binop_tt\n");
 }
 
 VG_REGPARM(3) void LK_(h32_binop_cc) ( IRStmt *stmt, UInt a , UInt b )
 {
-    VG_(printf)("V h32_binop_cc\n");
+//    VG_(printf)("V h32_binop_cc\n");
 }
 
 
 VG_REGPARM(3) void LK_(h64_binop_tc) ( IRStmt *stmt, ULong a , ULong b )
 {
-    VG_(printf)("V h64_binop_tc\n");
+//    VG_(printf)("V h64_binop_tc\n");
     if ((a  & 0xffff) == 0xe91b) {
-        VG_(printf)("---------------------- found --------------------\n");
+        //VG_(printf)("---------------------- found --------------------\n");
     }
 
 }
 
 VG_REGPARM(3) void LK_(h64_binop_ct) ( IRStmt *stmt, ULong a, ULong b )
 {
-    VG_(printf)("V h64_binop_ct\n");
+//    VG_(printf)("V h64_binop_ct\n");
 
 
     if ((a & 0xffff) == 0xe91b) {
-        VG_(printf)("---------------------- found --------------------\n");
+        //VG_(printf)("---------------------- found --------------------\n");
     }
 }
 
@@ -239,7 +239,7 @@ VG_REGPARM(3) void LK_(h64_binop_tt) ( IRStmt *stmt, ULong a , ULong b )
 
 VG_REGPARM(3) void LK_(h64_binop_cc) ( IRStmt *stmt, ULong a, ULong b )
 {
-    VG_(printf)("V h64_binop_cc\n");
+//    VG_(printf)("V h64_binop_cc\n");
 }
 
 
@@ -248,7 +248,7 @@ void LK_(h32_get) (
    IRStmt *clone,
    UInt value,
    UInt taint ) {
-    VG_(printf)("V h32_get: %d\n", value);
+//    VG_(printf)("V h32_get: %d\n", value);
 }
 
 VG_REGPARM(3)
@@ -256,7 +256,7 @@ void LK_(h64_get) (
    IRStmt *clone,
    ULong value,
    ULong taint ) {
-    VG_(printf)("V h64_get: %d\n", value);
+//    VG_(printf)("V h64_get: %d\n", value);
 }
 
 

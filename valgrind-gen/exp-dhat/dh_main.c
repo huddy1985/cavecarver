@@ -629,6 +629,7 @@ void* renew_block ( ThreadId tid, void* p_old, SizeT new_req_szB )
 
 static void* dh_malloc ( ThreadId tid, SizeT szB )
 {
+    // VG_(printf)("dh_malloc\n");
    return new_block( tid, NULL, szB, VG_(clo_alignment), /*is_zeroed*/False );
 }
 
@@ -732,7 +733,9 @@ static const char searchfor[] = { //0xD9, 0x1E, 0xA5, 0x73, 0xA0, 0xC5 //0x32,0x
   //0x96, 0xe8, 0xdf, 0xd8, 0x35, 0x4f, 0xb2, 0x28
 
   //synopsysaes.dec.hex: 1be9c2943418d47ffc4a285374af7512
-  0x1b, 0xe9, 0xc2, 0x94, 0x34, 0x18, 0xd4, 0x7f
+  //0x1b, 0xe9, 0xc2, 0x94, 0x34, 0x18, 0xd4, 0x7f
+
+    0x62 ,0x70 ,0x30 ,0xef ,0x17 ,0xba ,0x58 ,0xb3
 
   //0xc5,0x2c,0xce,0x3d,0xd5,0x6c,0x7f,0x23
   //0x20,0xda,0x66,0x28,0xc9,0x01,0xb9,0xab,0xba,0x6d,0xd1,0x22,0x04,0x57,0x1b,0x37
@@ -783,10 +786,11 @@ static VG_REGPARM(3)
        for (i = 0; i <= 8; i++) {
 	 if ((VG_(memcmp)(((char*)addr)+ i-8, searchfor, 8) == 0)) {
 	   //char b[1];
+	   VG_(printf)(" vvvvvvvvv found write mem:%08lx  @ ip:%08lx --------\n", addr, ip);
 	   ExeContext *ec = VG_(record_ExeContext)( VG_(get_running_tid)(), 0 );
 	   //ec->n_ips = 32;
 	   VG_(pp_ExeContext) ( ec );
-	   VG_(printf)(" ---------------- -----------  found write %08lx  @ %08lx --------\n", addr, ip);
+	   VG_(printf)(" ^^^^^^^^^\n");
 	   //while(1) {}
 	 }
        }
@@ -819,10 +823,11 @@ void dh_handle_read ( Addr addr, UWord szB, Addr ip )
        for (i = 0; i <= 8; i++) {
 	 if ((VG_(memcmp)(((char*)addr)+ i-7, searchfor, 8) == 0)) {
 	   //char b[1];
+	   VG_(printf)(" vvvvvvvvv -----------  found read mem:%08lx  @ ip:%08lx --------\n", addr, ip);
 	   ExeContext *ec = VG_(record_ExeContext)( VG_(get_running_tid)(), 0 );
 	   //ec->n_ips = 32;
 	   VG_(pp_ExeContext) ( ec );
-	   VG_(printf)(" ---------------- -----------  found read %08lx  @ %08lx --------\n", addr, ip);
+	   VG_(printf)(" ^^^^^^^^^\n");
 	   //while(1) {}
 	 }
        }

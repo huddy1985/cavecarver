@@ -444,7 +444,7 @@ typedef
    instrumentation IR for each event, in the order in which they
    appear. */
 
-#define ENABLE_OUTPUT 1
+#define ENABLE_OUTPUT 0
 
 static Event events[N_EVENTS];
 static Int   events_used = 0;
@@ -454,6 +454,13 @@ static int enable_trace = 1;
 static VG_REGPARM(2) void trace_instr(Addr addr, SizeT size)
 {
   int i;
+
+  if (addr == 0x87f990 /*0x87f9907*/) {
+      VG_(printf)("reached %02x ", addr);
+      //while (1) {
+      //}
+  }
+
   if (ENABLE_OUTPUT &&
       /*(addr >= 0xa59d000 && addr < 0xadd6000) &&*/
       (enable_trace)) {

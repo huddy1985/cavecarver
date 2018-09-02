@@ -1,7 +1,8 @@
 CC=gcc
 BIN=passe-partout
 OBJS=dbg.o $(BIN).o
-LDFLAGS=-lcrypto -lssl
+CFLAGS+=-I/home/eiselekd/openssl-bin/include 
+LDFLAGS=-lcrypto -lssl -L/home/eiselekd/openssl-bin/lib -ldl
 
 all: $(LIB) $(BIN)
 

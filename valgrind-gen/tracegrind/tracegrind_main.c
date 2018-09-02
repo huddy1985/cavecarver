@@ -1,6 +1,7 @@
 
 #include "tracegrind.h"
 #include "distorm.h"
+#include "pub_tool_wordfm.h"
 
 /*------------------------------------------------------------*/
 /*--- Command line options                                 ---*/
@@ -28,7 +29,7 @@ static Bool lk_process_cmd_line_option(const HChar* arg)
    else if VG_BOOL_CLO(arg, "--trace-superblocks", clo_trace_sbs) {}
    else if VG_BHEX_CLO(arg, "--trace-match", clo_trace_match, 0x0000, 0xffffffff) {}
    else
-      return False;
+      return VG_(replacement_malloc_process_cmd_line_option)(arg);
 
    tl_assert(clo_fnname);
    tl_assert(clo_fnname[0]);
@@ -54,6 +55,639 @@ static void lk_print_debug_usage(void)
 "    (none)\n"
    );
 }
+
+//------------------------------------------------------------//
+//--- an Interval Tree of live blocks                      ---//
+//------------------------------------------------------------//
+
+#define HISTOGRAM_SIZE_LIMIT 1024
+#define FD_MAX 256
+#define FD_MAX_PATH 256
+#define FD_READ 0x1
+#define FD_WRITE 0x2
+#define FD_STAT 0x4
+
+// Number of guest instructions executed so far.  This is
+// incremented directly from the generated code.
+static ULong g_guest_instrs_executed = 0;
+
+// Summary statistics for the entire run.
+static ULong g_tot_blocks = 0;   // total blocks allocated
+static ULong g_tot_bytes  = 0;   // total bytes allocated
+
+static ULong g_cur_blocks_live = 0; // curr # blocks live
+static ULong g_cur_bytes_live  = 0; // curr # bytes live
+
+static ULong g_max_blocks_live = 0; // bytes and blocks at
+static ULong g_max_bytes_live  = 0; // the max residency point
+
+/* Tracks information about live blocks. */
+typedef
+   struct {
+      Addr        payload;
+      SizeT       req_szB;
+      ExeContext* ap;  /* allocation ec */
+      ULong       allocd_at; /* instruction number */
+      ULong       n_reads;
+      ULong       n_writes;
+      /* Approx histogram, one byte per payload byte.  Counts latch up
+         therefore at 0xFFFF.  Can be NULL if the block is resized or if
+         the block is larger than HISTOGRAM_SIZE_LIMIT. */
+      UShort*     histoW; /* [0 .. req_szB-1] */
+   }
+   Block;
+
+/* May not contain zero-sized blocks.  May not contain
+   overlapping blocks. */
+static WordFM* interval_tree = NULL;  /* WordFM* Block* void */
+
+/* Here's the comparison function.  Since the tree is required
+to contain non-zero sized, non-overlapping blocks, it's good
+enough to consider any overlap as a match. */
+static Word interval_tree_Cmp ( UWord k1, UWord k2 )
+{
+   Block* b1 = (Block*)k1;
+   Block* b2 = (Block*)k2;
+   tl_assert(b1->req_szB > 0);
+   tl_assert(b2->req_szB > 0);
+   if (b1->payload + b1->req_szB <= b2->payload) return -1;
+   if (b2->payload + b2->req_szB <= b1->payload) return  1;
+   return 0;
+}
+
+// 2-entry cache for find_Block_containing
+static Block* fbc_cache0 = NULL;
+static Block* fbc_cache1 = NULL;
+
+static UWord stats__n_fBc_cached = 0;
+static UWord stats__n_fBc_uncached = 0;
+static UWord stats__n_fBc_notfound = 0;
+
+static Block* find_Block_containing ( Addr a )
+{
+   if (LIKELY(fbc_cache0
+              && fbc_cache0->payload <= a
+              && a < fbc_cache0->payload + fbc_cache0->req_szB)) {
+      // found at 0
+      stats__n_fBc_cached++;
+      return fbc_cache0;
+   }
+   if (LIKELY(fbc_cache1
+              && fbc_cache1->payload <= a
+              && a < fbc_cache1->payload + fbc_cache1->req_szB)) {
+      // found at 1; swap 0 and 1
+      Block* tmp = fbc_cache0;
+      fbc_cache0 = fbc_cache1;
+      fbc_cache1 = tmp;
+      stats__n_fBc_cached++;
+      return fbc_cache0;
+   }
+   Block fake;
+   fake.payload = a;
+   fake.req_szB = 1;
+   UWord foundkey = 1;
+   UWord foundval = 1;
+   Bool found = VG_(lookupFM)( interval_tree,
+                               &foundkey, &foundval, (UWord)&fake );
+   if (!found) {
+      stats__n_fBc_notfound++;
+      return NULL;
+   }
+   tl_assert(foundval == 0); // we don't store vals in the interval tree
+   tl_assert(foundkey != 1);
+   Block* res = (Block*)foundkey;
+   tl_assert(res != &fake);
+   // put at the top position
+   fbc_cache1 = fbc_cache0;
+   fbc_cache0 = res;
+   stats__n_fBc_uncached++;
+   return res;
+}
+
+// delete a block; asserts if not found.  (viz, 'a' must be
+// known to be present.)
+static void delete_Block_starting_at ( Addr a )
+{
+   Block fake;
+   fake.payload = a;
+   fake.req_szB = 1;
+   Bool found = VG_(delFromFM)( interval_tree,
+                                NULL, NULL, (Addr)&fake );
+   tl_assert(found);
+   fbc_cache0 = fbc_cache1 = NULL;
+}
+
+
+//------------------------------------------------------------//
+//--- a FM of allocation points (APs)                      ---//
+//------------------------------------------------------------//
+
+typedef
+   struct {
+      // the allocation point that we're summarising stats for
+      ExeContext* ap;
+      // used when printing results
+      Bool shown;
+      // The current number of blocks and bytes live for this AP
+      ULong cur_blocks_live;
+      ULong cur_bytes_live;
+      // The number of blocks and bytes live at the max-liveness
+      // point.  Note this is a bit subtle.  max_blocks_live is not
+      // the maximum number of live blocks, but rather the number of
+      // blocks live at the point of maximum byte liveness.  These are
+      // not necessarily the same thing.
+      ULong max_blocks_live;
+      ULong max_bytes_live;
+      // Total number of blocks and bytes allocated by this AP.
+      ULong tot_blocks;
+      ULong tot_bytes;
+      // Sum of death ages for all blocks allocated by this AP,
+      // that have subsequently been freed.
+      ULong death_ages_sum;
+      ULong deaths;
+      // Total number of reads and writes in all blocks allocated
+      // by this AP.
+      ULong n_reads;
+      ULong n_writes;
+      /* Histogram information.  We maintain a histogram aggregated for
+         all retiring Blocks allocated by this AP, but only if:
+         - this AP has only ever allocated objects of one size
+         - that size is <= HISTOGRAM_SIZE_LIMIT
+         What we need therefore is a mechanism to see if this AP
+         has only ever allocated blocks of one size.
+
+         3 states:
+            Unknown          because no retirement yet
+            Exactly xsize    all retiring blocks are of this size
+            Mixed            multiple different sizes seen
+      */
+      enum { Unknown=999, Exactly, Mixed } xsize_tag;
+      SizeT xsize;
+      UInt* histo; /* [0 .. xsize-1] */
+   }
+   APInfo;
+
+/* maps ExeContext*'s to APInfo*'s.  Note that the keys must match the
+   .ap field in the values. */
+static WordFM* apinfo = NULL;  /* WordFM* ExeContext* APInfo* */
+
+
+/* 'bk' is being introduced (has just been allocated).  Find the
+   relevant APInfo entry for it, or create one, based on the block's
+   allocation EC.  Then, update the APInfo to the extent that we
+   actually can, to reflect the allocation. */
+static void intro_Block ( Block* bk )
+{
+   tl_assert(bk);
+   tl_assert(bk->ap);
+
+   APInfo* api   = NULL;
+   UWord   keyW  = 0;
+   UWord   valW  = 0;
+   Bool    found = VG_(lookupFM)( apinfo,
+                                  &keyW, &valW, (UWord)bk->ap );
+   if (found) {
+      api = (APInfo*)valW;
+      tl_assert(keyW == (UWord)bk->ap);
+   } else {
+      api = VG_(malloc)( "dh.main.intro_Block.1", sizeof(APInfo) );
+      VG_(memset)(api, 0, sizeof(*api));
+      api->ap = bk->ap;
+      Bool present = VG_(addToFM)( apinfo,
+                                   (UWord)bk->ap, (UWord)api );
+      tl_assert(!present);
+      // histo stuff
+      tl_assert(api->deaths == 0);
+      api->xsize_tag = Unknown;
+      api->xsize = 0;
+      if (0) VG_(printf)("api %p   -->  Unknown\n", api);
+   }
+
+   tl_assert(api->ap == bk->ap);
+
+   /* So: update stats to reflect an allocation */
+
+   // # live blocks
+   api->cur_blocks_live++;
+
+   // # live bytes
+   api->cur_bytes_live += bk->req_szB;
+   if (api->cur_bytes_live > api->max_bytes_live) {
+      api->max_bytes_live  = api->cur_bytes_live;
+      api->max_blocks_live = api->cur_blocks_live;
+   }
+
+   // total blocks and bytes allocated here
+   api->tot_blocks++;
+   api->tot_bytes += bk->req_szB;
+
+   // update summary globals
+   g_tot_blocks++;
+   g_tot_bytes += bk->req_szB;
+
+   g_cur_blocks_live++;
+   g_cur_bytes_live += bk->req_szB;
+   if (g_cur_bytes_live > g_max_bytes_live) {
+      g_max_bytes_live = g_cur_bytes_live;
+      g_max_blocks_live = g_cur_blocks_live;
+   }
+}
+
+
+/* 'bk' is retiring (being freed).  Find the relevant APInfo entry for
+   it, which must already exist.  Then, fold info from 'bk' into that
+   entry.  'because_freed' is True if the block is retiring because
+   the client has freed it.  If it is False then the block is retiring
+   because the program has finished, in which case we want to skip the
+   updates of the total blocks live etc for this AP, but still fold in
+   the access counts and histo data that have so far accumulated for
+   the block. */
+static void retire_Block ( Block* bk, Bool because_freed )
+{
+   tl_assert(bk);
+   tl_assert(bk->ap);
+
+   APInfo* api   = NULL;
+   UWord   keyW  = 0;
+   UWord   valW  = 0;
+   Bool    found = VG_(lookupFM)( apinfo,
+                                  &keyW, &valW, (UWord)bk->ap );
+
+   tl_assert(found);
+   api = (APInfo*)valW;
+   tl_assert(api->ap == bk->ap);
+
+   // update stats following this free.
+   if (0)
+   VG_(printf)("ec %p  api->c_by_l %llu  bk->rszB %llu\n",
+               bk->ap, api->cur_bytes_live, (ULong)bk->req_szB);
+
+   // update total blocks live etc for this AP
+   if (because_freed) {
+      tl_assert(api->cur_blocks_live >= 1);
+      tl_assert(api->cur_bytes_live >= bk->req_szB);
+      api->cur_blocks_live--;
+      api->cur_bytes_live -= bk->req_szB;
+
+      api->deaths++;
+
+      tl_assert(bk->allocd_at <= g_guest_instrs_executed);
+      api->death_ages_sum += (g_guest_instrs_executed - bk->allocd_at);
+
+      // update global summary stats
+      tl_assert(g_cur_blocks_live > 0);
+      g_cur_blocks_live--;
+      tl_assert(g_cur_bytes_live >= bk->req_szB);
+      g_cur_bytes_live -= bk->req_szB;
+   }
+
+   // access counts
+   api->n_reads  += bk->n_reads;
+   api->n_writes += bk->n_writes;
+
+   // histo stuff.  First, do state transitions for xsize/xsize_tag.
+   switch (api->xsize_tag) {
+
+      case Unknown:
+         tl_assert(api->xsize == 0);
+         tl_assert(api->deaths == 1 || api->deaths == 0);
+         tl_assert(!api->histo);
+         api->xsize_tag = Exactly;
+         api->xsize = bk->req_szB;
+         if (0) VG_(printf)("api %p   -->  Exactly(%lu)\n", api, api->xsize);
+         // and allocate the histo
+         if (bk->histoW) {
+            api->histo = VG_(malloc)("dh.main.retire_Block.1",
+                                     api->xsize * sizeof(UInt));
+            VG_(memset)(api->histo, 0, api->xsize * sizeof(UInt));
+         }
+         break;
+
+      case Exactly:
+         //tl_assert(api->deaths > 1);
+         if (bk->req_szB != api->xsize) {
+            if (0) VG_(printf)("api %p   -->  Mixed(%lu -> %lu)\n",
+                               api, api->xsize, bk->req_szB);
+            api->xsize_tag = Mixed;
+            api->xsize = 0;
+            // deallocate the histo, if any
+            if (api->histo) {
+               VG_(free)(api->histo);
+               api->histo = NULL;
+            }
+         }
+         break;
+
+      case Mixed:
+         //tl_assert(api->deaths > 1);
+         break;
+
+      default:
+        tl_assert(0);
+   }
+
+   // See if we can fold the histo data from this block into
+   // the data for the AP
+   if (api->xsize_tag == Exactly && api->histo && bk->histoW) {
+      tl_assert(api->xsize == bk->req_szB);
+      UWord i;
+      for (i = 0; i < api->xsize; i++) {
+         // FIXME: do something better in case of overflow of api->histo[..]
+         // Right now, at least don't let it overflow/wrap around
+         if (api->histo[i] <= 0xFFFE0000)
+            api->histo[i] += (UInt)bk->histoW[i];
+      }
+      if (0) VG_(printf)("fold in, AP = %p\n", api);
+   }
+
+
+
+#if 0
+   if (bk->histoB) {
+      VG_(printf)("block retiring, histo %lu: ", bk->req_szB);
+      UWord i;
+      for (i = 0; i < bk->req_szB; i++)
+        VG_(printf)("%u ", (UInt)bk->histoB[i]);
+      VG_(printf)("\n");
+   } else {
+      VG_(printf)("block retiring, no histo %lu\n", bk->req_szB);
+   }
+#endif
+}
+
+/* This handles block resizing.  When a block with AP 'ec' has a
+   size change of 'delta', call here to update the APInfo. */
+static void apinfo_change_cur_bytes_live( ExeContext* ec, Long delta )
+{
+   APInfo* api   = NULL;
+   UWord   keyW  = 0;
+   UWord   valW  = 0;
+   Bool    found = VG_(lookupFM)( apinfo,
+                                  &keyW, &valW, (UWord)ec );
+
+   tl_assert(found);
+   api = (APInfo*)valW;
+   tl_assert(api->ap == ec);
+
+   if (delta < 0) {
+      tl_assert(api->cur_bytes_live >= -delta);
+      tl_assert(g_cur_bytes_live >= -delta);
+   }
+
+   // adjust current live size
+   api->cur_bytes_live += delta;
+   g_cur_bytes_live += delta;
+
+   if (delta > 0 && api->cur_bytes_live > api->max_bytes_live) {
+      api->max_bytes_live  = api->cur_bytes_live;
+      api->max_blocks_live = api->cur_blocks_live;
+   }
+
+   // update global summary stats
+   if (delta > 0 && g_cur_bytes_live > g_max_bytes_live) {
+      g_max_bytes_live = g_cur_bytes_live;
+      g_max_blocks_live = g_cur_blocks_live;
+   }
+   if (delta > 0)
+      g_tot_bytes += delta;
+
+   // adjust total allocation size
+   if (delta > 0)
+      api->tot_bytes += delta;
+}
+
+
+//------------------------------------------------------------//
+//--- update both Block and APInfos after {m,re}alloc/free ---//
+//------------------------------------------------------------//
+
+static
+void* new_block ( ThreadId tid, void* p, SizeT req_szB, SizeT req_alignB,
+                  Bool is_zeroed )
+{
+   tl_assert(p == NULL); // don't handle custom allocators right now
+   SizeT actual_szB /*, slop_szB*/;
+
+   if ((SSizeT)req_szB < 0) return NULL;
+
+   if (req_szB == 0)
+      req_szB = 1;  /* can't allow zero-sized blocks in the interval tree */
+
+   // Allocate and zero if necessary
+   if (!p) {
+      p = VG_(cli_malloc)( req_alignB, req_szB );
+      if (!p) {
+         return NULL;
+      }
+      if (is_zeroed) VG_(memset)(p, 0, req_szB);
+      actual_szB = VG_(cli_malloc_usable_size)(p);
+      tl_assert(actual_szB >= req_szB);
+      /* slop_szB = actual_szB - req_szB; */
+   } else {
+      /* slop_szB = 0; */
+   }
+
+   // Make new HP_Chunk node, add to malloc_list
+   Block* bk = VG_(malloc)("dh.new_block.1", sizeof(Block));
+   bk->payload   = (Addr)p;
+   bk->req_szB   = req_szB;
+   bk->ap        = VG_(record_ExeContext)(tid, 0/*first word delta*/);
+   bk->allocd_at = g_guest_instrs_executed;
+   bk->n_reads   = 0;
+   bk->n_writes  = 0;
+   // set up histogram array, if the block isn't too large
+   bk->histoW = NULL;
+   if (req_szB <= HISTOGRAM_SIZE_LIMIT) {
+      bk->histoW = VG_(malloc)("dh.new_block.2", req_szB * sizeof(UShort));
+      VG_(memset)(bk->histoW, 0, req_szB * sizeof(UShort));
+   }
+
+   Bool present = VG_(addToFM)( interval_tree, (UWord)bk, (UWord)0/*no val*/);
+   tl_assert(!present);
+   fbc_cache0 = fbc_cache1 = NULL;
+
+   intro_Block(bk);
+
+   if (0) VG_(printf)("ALLOC %lu -> %p\n", req_szB, p);
+
+   return p;
+}
+
+static
+void die_block ( void* p, Bool custom_free )
+{
+   tl_assert(!custom_free);  // at least for now
+
+   Block* bk = find_Block_containing( (Addr)p );
+
+   if (!bk) {
+     return; // bogus free
+   }
+
+   tl_assert(bk->req_szB > 0);
+   // assert the block finder is behaving sanely
+   tl_assert(bk->payload <= (Addr)p);
+   tl_assert( (Addr)p < bk->payload + bk->req_szB );
+
+   if (bk->payload != (Addr)p) {
+      return; // bogus free
+   }
+
+   if (0) VG_(printf)(" FREE %p %llu\n",
+                      p, g_guest_instrs_executed - bk->allocd_at);
+
+   retire_Block(bk, True/*because_freed*/);
+
+   VG_(cli_free)( (void*)bk->payload );
+   delete_Block_starting_at( bk->payload );
+   if (bk->histoW) {
+      VG_(free)( bk->histoW );
+      bk->histoW = NULL;
+   }
+   VG_(free)( bk );
+}
+
+
+static
+void* renew_block ( ThreadId tid, void* p_old, SizeT new_req_szB )
+{
+   if (0) VG_(printf)("REALL %p %lu\n", p_old, new_req_szB);
+   void* p_new = NULL;
+
+   tl_assert(new_req_szB > 0); // map 0 to 1
+
+   // Find the old block.
+   Block* bk = find_Block_containing( (Addr)p_old );
+   if (!bk) {
+      return NULL;   // bogus realloc
+   }
+
+   tl_assert(bk->req_szB > 0);
+   // assert the block finder is behaving sanely
+   tl_assert(bk->payload <= (Addr)p_old);
+   tl_assert( (Addr)p_old < bk->payload + bk->req_szB );
+
+   if (bk->payload != (Addr)p_old) {
+      return NULL; // bogus realloc
+   }
+
+   // Keeping the histogram alive in any meaningful way across
+   // block resizing is too darn complicated.  Just throw it away.
+   if (bk->histoW) {
+      VG_(free)(bk->histoW);
+      bk->histoW = NULL;
+   }
+
+   // Actually do the allocation, if necessary.
+   if (new_req_szB <= bk->req_szB) {
+
+      // New size is smaller or same; block not moved.
+      apinfo_change_cur_bytes_live(bk->ap,
+                                   (Long)new_req_szB - (Long)bk->req_szB);
+      bk->req_szB = new_req_szB;
+      return p_old;
+
+   } else {
+
+      // New size is bigger;  make new block, copy shared contents, free old.
+      p_new = VG_(cli_malloc)(VG_(clo_alignment), new_req_szB);
+      if (!p_new) {
+         // Nb: if realloc fails, NULL is returned but the old block is not
+         // touched.  What an awful function.
+         return NULL;
+      }
+      tl_assert(p_new != p_old);
+
+      VG_(memcpy)(p_new, p_old, bk->req_szB);
+      VG_(cli_free)(p_old);
+
+      // Since the block has moved, we need to re-insert it into the
+      // interval tree at the new place.  Do this by removing
+      // and re-adding it.
+      delete_Block_starting_at( (Addr)p_old );
+      // now 'bk' is no longer in the tree, but the Block itself
+      // is still alive
+
+      // Update the metadata.
+      apinfo_change_cur_bytes_live(bk->ap,
+                                   (Long)new_req_szB - (Long)bk->req_szB);
+      bk->payload = (Addr)p_new;
+      bk->req_szB = new_req_szB;
+
+      // and re-add
+      Bool present
+         = VG_(addToFM)( interval_tree, (UWord)bk, (UWord)0/*no val*/);
+      tl_assert(!present);
+      fbc_cache0 = fbc_cache1 = NULL;
+
+      return p_new;
+   }
+   /*NOTREACHED*/
+   tl_assert(0);
+}
+
+//------------------------------------------------------------//
+//--- malloc() et al replacement wrappers                  ---//
+//------------------------------------------------------------//
+
+static void* lk_malloc ( ThreadId tid, SizeT szB )
+{
+   return new_block( tid, NULL, szB, VG_(clo_alignment), /*is_zeroed*/False );
+}
+
+static void* lk___builtin_new ( ThreadId tid, SizeT szB )
+{
+   return new_block( tid, NULL, szB, VG_(clo_alignment), /*is_zeroed*/False );
+}
+
+static void* lk___builtin_vec_new ( ThreadId tid, SizeT szB )
+{
+   return new_block( tid, NULL, szB, VG_(clo_alignment), /*is_zeroed*/False );
+}
+
+static void* lk_calloc ( ThreadId tid, SizeT m, SizeT szB )
+{
+   return new_block( tid, NULL, m*szB, VG_(clo_alignment), /*is_zeroed*/True );
+}
+
+static void *lk_memalign ( ThreadId tid, SizeT alignB, SizeT szB )
+{
+   return new_block( tid, NULL, szB, alignB, False );
+}
+
+static void lk_free ( ThreadId tid __attribute__((unused)), void* p )
+{
+   die_block( p, /*custom_free*/False );
+}
+
+static void lk___builtin_delete ( ThreadId tid, void* p )
+{
+   die_block( p, /*custom_free*/False);
+}
+
+static void lk___builtin_vec_delete ( ThreadId tid, void* p )
+{
+   die_block( p, /*custom_free*/False );
+}
+
+static void* lk_realloc ( ThreadId tid, void* p_old, SizeT new_szB )
+{
+   if (p_old == NULL) {
+      return lk_malloc(tid, new_szB);
+   }
+   if (new_szB == 0) {
+      lk_free(tid, p_old);
+      return NULL;
+   }
+   return renew_block(tid, p_old, new_szB);
+}
+
+static SizeT lk_malloc_usable_size ( ThreadId tid, void* p )
+{
+   Block* bk = find_Block_containing( (Addr)p );
+   return bk ? bk->req_szB : 0;
+}
+
 
 /*------------------------------------------------------------*/
 /*--- Stuff for --basic-counts                             ---*/
@@ -275,15 +909,26 @@ typedef
    appear. */
 
 #define ENABLE_OUTPUT 1
+#define DISABLE_PRINTF
 
 static Event events[N_EVENTS];
 static Int   events_used = 0;
 //static VgFile *bin_file = 0;
 static int enable_trace = 1;
+static unsigned long inscnt = 0;
+static int out_reached = 0;
 
 static VG_REGPARM(2) void trace_instr(Addr addr, SizeT size)
 {
   int i;
+  const unsigned char*p = (const unsigned char*)(uint8_t*)addr;
+  if (!(out_reached &&
+        p[0] == 0x48 &&
+        p[1] == 0xf7 ))
+      return;
+
+
+
   if (ENABLE_OUTPUT &&
       /*(addr >= 0xa59d000 && addr < 0xadd6000) &&*/
       (enable_trace)) {
@@ -317,7 +962,25 @@ static VG_REGPARM(2) void trace_instr(Addr addr, SizeT size)
 	   (char*)decodedInstructions[0].mnemonic.p, decodedInstructions[0].operands.length != 0 ? " " : "",
 	   (char*)decodedInstructions[0].operands.p);
 #endif
+
+    if (VG_(strncmp)(decodedInstructions[0].mnemonic.p, "IMUL", 4) == 0) {
+        ExeContext *ec = VG_(record_ExeContext)( VG_(get_running_tid)(), 0 );
+        //ec->n_ips = 32;
+        VG_(pp_ExeContext) ( ec );
+        VG_(printf)("--- addr: 0x%x\n", addr);
+
+        VG_(printf)("I %llx %llx %-24s %s%s%s\r\n", inscnt, (long long)decodedInstructions[0].offset,
+	   (char*)decodedInstructions[0].instructionHex.p,
+	   (char*)decodedInstructions[0].mnemonic.p, decodedInstructions[0].operands.length != 0 ? " " : "",
+	   (char*)decodedInstructions[0].operands.p);
+
+
+    }
+
   }
+
+
+  inscnt++;
 
   //VG_(printf)("\n");
 }
@@ -329,8 +992,48 @@ void print_mem(char *mem, int len) {
     }
 }
 
+/* Return true iff [aSmall,aSmall+nSmall) is entirely contained
+   within [aBig,aBig+nBig). */
+inline
+static Bool is_subinterval_of ( Addr aBig, SizeT nBig,
+                                Addr aSmall, SizeT nSmall ) {
+   tl_assert(nBig > 0 && nSmall > 0);
+   return aBig <= aSmall && aSmall + nSmall <= aBig + nBig;
+}
+
+static const char searchfor[] = {
+    0x62 ,0x70 ,0x30 ,0xef ,0x17 ,0xba ,0x58 ,0xb3
+};
+
+static search_address_reagion(Addr addr) {
+   Block* bk = find_Block_containing(addr);
+   if (bk) {
+       if (is_subinterval_of(bk->payload, bk->req_szB, addr-7, 8)) {
+           int i = 0;
+           for (i = 0; i <= 8; i++) {
+               if ((VG_(memcmp)(((char*)addr)+ i-7, searchfor, 8) == 0)) {
+                   //char b[1];
+                   VG_(printf)(" vvvvvvvvvv -----------  found read mem:%08lx   --------\n", addr);
+                   ExeContext *ec = VG_(record_ExeContext)( VG_(get_running_tid)(), 0 );
+                   //ec->n_ips = 32;
+                   VG_(pp_ExeContext) ( ec );
+                   //while(1) {}
+                   VG_(printf)(" ^^^^^^^^^^\n");
+               }
+           }
+       }
+   }
+}
+
+
 static VG_REGPARM(2) void trace_load(Addr addr, SizeT size)
 {
+
+    //if (out_reached)
+    {
+        search_address_reagion(addr);
+    }
+
 #ifndef DISABLE_PRINTF
     VG_(printf)("> LDD %08lx,%lu: ", addr, size);
     print_mem(addr, size);
@@ -340,6 +1043,10 @@ static VG_REGPARM(2) void trace_load(Addr addr, SizeT size)
 
 static VG_REGPARM(2) void trace_store(Addr addr, SizeT size)
 {
+    // if (out_reached)
+    {
+        search_address_reagion(addr);
+    }
 #ifndef DISABLE_PRINTF
     VG_(printf)("< STD %08lx,%lu: ", addr, size);
     print_mem(addr, size);
@@ -643,6 +1350,7 @@ IRSB* lk_instrument ( VgCallbackClosure* closure,
             break;
          case Ist_Put:
              addStmtToIRSB( sbOut, st );
+             /*
              {
              IRDirty*   di_put;
              IRType tyE    = typeOfIRExpr(sbOut->tyenv, st->Ist.Put.data);
@@ -654,7 +1362,7 @@ IRSB* lk_instrument ( VgCallbackClosure* closure,
 
              addStmtToIRSB( sbOut, IRStmt_Dirty(di_put) );
 
-         }
+             }*/
             break;
 
          case Ist_IMark:
@@ -1047,6 +1755,12 @@ void resolve_filename(UWord fd, HChar *path, Int max)
    path[len] = '\0';
 }
 
+static void lk_syscall_write(ThreadId tid, UWord* args, UInt nArgs, SysRes res) {
+    if (args[0] == 1) {
+        VG_(printf)("W stdout:\n");
+        out_reached = 1;
+    }
+}
 
 static void lk_syscall_open(ThreadId tid, UWord* args, UInt nArgs, SysRes res) {
 
@@ -1055,14 +1769,16 @@ static void lk_syscall_open(ThreadId tid, UWord* args, UInt nArgs, SysRes res) {
    Bool verbose = False;
    (void)verbose;
    resolve_filename(fd, fdpath, FD_MAX_PATH-1);
-   if (!VG_(strcmp)(fdpath, "/mnt/btfs0/eda/Xilinx-2016.3/Vivado/2016.3/lib/lnx64.o/libisl_iostreams.so"))
+   if (!VG_(strcmp)(fdpath, "/mnt/usb/logfiles/vivado_2018.1/microblaze_mcs_err.vhd")) {
        enable_trace = 1;
-   VG_(printf)("O %d:%s\n", fd,fdpath);
+       VG_(printf)("O %d:%s\n", fd,fdpath);
+   }
+   //VG_(printf)("O %d:%s\n", fd,fdpath);
 }
 
 static void lk_syscall_mmap(ThreadId tid, UWord* args, UInt nArgs, SysRes res) {
 
-  VG_(printf)("M %p:l=%d:p=0x%x:f=0x%x:fd=%d:off:0x%x=>0x%p\n", (void*)args[0],(int)args[1],(int)args[2],(int)args[3],(int)args[4],(int)args[5], (void*)sr_Res(res));
+    //VG_(printf)("M %p:l=%d:p=0x%x:f=0x%x:fd=%d:off:0x%x=>0x%p\n", (void*)args[0],(int)args[1],(int)args[2],(int)args[3],(int)args[4],(int)args[5], (void*)sr_Res(res));
 
 }
 
@@ -1078,7 +1794,7 @@ void lk_post_syscall(ThreadId tid, UInt syscallno,
       //TNT_(syscall_read)(tid, args, nArgs, res);
       break;
     case __NR_write:
-      //TNT_(syscall_write)(tid, args, nArgs, res);
+      lk_syscall_write(tid, args, nArgs, res);
       break;
     case __NR_open:
     case __NR_openat:
@@ -1105,6 +1821,7 @@ void lk_post_syscall(ThreadId tid, UInt syscallno,
 }
 
 
+
 static void lk_pre_clo_init(void)
 {
   //bin_file = VG_(fopen)("/mnt/btfs0/eda/log/trace.bin", VKI_O_CREAT|VKI_O_WRONLY|VKI_O_TRUNC, 0);
@@ -1120,16 +1837,48 @@ static void lk_pre_clo_init(void)
    VG_(basic_tool_funcs)          (lk_post_clo_init,
                                    lk_instrument,
                                    lk_fini);
+
+   VG_(needs_libc_freeres)();
+   VG_(needs_client_requests)     (lk_handle_client_request);
    VG_(needs_command_line_options)(lk_process_cmd_line_option,
                                    lk_print_usage,
                                    lk_print_debug_usage);
 
+   VG_(needs_malloc_replacement)  (lk_malloc,
+                                   lk___builtin_new,
+                                   lk___builtin_vec_new,
+                                   lk_memalign,
+                                   lk_calloc,
+                                   lk_free,
+                                   lk___builtin_delete,
+                                   lk___builtin_vec_delete,
+                                   lk_realloc,
+                                   lk_malloc_usable_size,
+                                   0 );
+
+   //VG_(track_new_mem_mmap)        ( lk_new_mem_mmap );
+
+   tl_assert(!interval_tree);
+   tl_assert(!fbc_cache0);
+   tl_assert(!fbc_cache1);
+
+
+   interval_tree = VG_(newFM)( VG_(malloc),
+                               "dh.main.interval_tree.1",
+                               VG_(free),
+                               interval_tree_Cmp );
+
+
+   apinfo = VG_(newFM)( VG_(malloc),
+                        "dh.main.apinfo.1",
+                        VG_(free),
+                        NULL/*unboxedcmp*/ );
+
    VG_(needs_syscall_wrapper)     ( lk_pre_syscall,
                                     lk_post_syscall );
 
-   VG_(track_new_mem_mmap)        ( lk_new_mem_mmap );
 
-   VG_(clo_vex_control).iropt_register_updates_default = VexRegUpdAllregsAtEachInsn;
+   //VG_(clo_vex_control).iropt_register_updates_default = VexRegUpdAllregsAtEachInsn;
 
 }
 
