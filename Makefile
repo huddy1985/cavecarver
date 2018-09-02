@@ -60,3 +60,11 @@ vg-taint-prep:
 
 vg-taint:
 	cd valgrind-gen/taintgrind; make; make install
+
+
+
+
+
+qemu-build:
+	cd qemu-2.11+dfsg; dpkg-buildpackage -b -us -uc
+	qemu-2.11+dfsg/qemu-build/x86_64-softmmu/qemu-system-x86_64 -qmp tcp:localhost:4444,server,nowait -monitor stdio
