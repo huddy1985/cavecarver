@@ -67,4 +67,14 @@ vg-taint:
 
 qemu-build:
 	cd qemu-2.11+dfsg; dpkg-buildpackage -b -us -uc
-	qemu-2.11+dfsg/qemu-build/x86_64-softmmu/qemu-system-x86_64 -qmp tcp:localhost:4444,server,nowait -monitor stdio
+
+#,nowait
+qemu: 
+	qemu-2.11+dfsg/qemu-build/x86_64-softmmu/qemu-system-x86_64 -qmp tcp:localhost:4444,server -monitor stdio
+
+#,nowait
+qemu-qmp-shell-server:
+	qemu-2.11+dfsg/qemu-build/x86_64-softmmu/qemu-system-x86_64 -qmp unix:./qmp-sock,server -monitor stdio
+
+qemu-qmp-shell:
+	qemu-2.11+dfsg/scripts/qmp/qmp-shell ./qmp-sock
