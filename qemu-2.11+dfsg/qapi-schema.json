@@ -1146,7 +1146,7 @@
 ##
 
 { 'command': 'wrpy',
-  'data': {'val': 'int', 'size': 'int', 'data': 'str'} }
+  'data': {'addr': 'int', 'size': 'int', 'data': 'str'} }
 
 ##
 # @rdpy:
@@ -1156,7 +1156,7 @@
 ##
 
 { 'command': 'rdpy',
-  'data': {'val': 'int', 'size': 'int'},
+  'data': {'addr': 'int', 'size': 'int'},
   'returns': 'str'
 }
 

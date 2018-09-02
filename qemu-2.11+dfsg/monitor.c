@@ -612,14 +612,14 @@ char *qmp_rdpy(int64_t addr, int64_t val, Error **errp)
 
 void qmp_wrpy(int64_t addr, int64_t val, const char *data, Error **errp)
 {
-    int l = Base64decode_len(data);
-    char *buf = (char *)g_malloc0 (l*2);
+    int l = Base64decode_len(data+1);
+    char *buf = (char *)g_malloc0 (l*4);
     MemTxResult result;
 
-    Base64decode(buf, data);
+    l = Base64decode(buf, data+1);
 
     if (val != l) {
-        error_setg(errp, "write-length %d differ from data-len %d", (int)val, (int)l);
+        error_setg(errp, "write-length %d differ from data-len %d: '%s'", (int)val, (int)l, data);
         goto out;
     }
 
