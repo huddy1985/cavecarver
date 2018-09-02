@@ -85,3 +85,8 @@ qemu-qmp-shell-server:
 
 qemu-qmp-shell:
 	qemu-2.11+dfsg/scripts/qmp/qmp-shell ./qmp-sock
+
+
+
+pci:
+	cd pcileech/pcileech; make

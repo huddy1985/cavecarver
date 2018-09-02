@@ -7,7 +7,7 @@ OBJ = pcileech oscompatibility.o pcileech.o device.o device3380.o devicefile.o d
 	$(CC) -c -o $@ $< $(CFLAGS)
 
 pcileech: $(OBJ)
-	$(CC) -o $@ $^ $(CFLAGS) 
+	$(CC) -o $@ $^ $(CFLAGS)
 
 clean:
 	rm *.o
