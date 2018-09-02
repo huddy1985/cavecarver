@@ -26,6 +26,7 @@
 #include "qemu-common.h"
 #include "cpu.h"
 #include "hw/hw.h"
+#include "qemu/base64.h"
 #include "monitor/qdev.h"
 #include "hw/usb.h"
 #include "hw/i386/pc.h"
@@ -588,6 +589,52 @@ static void monitor_data_destroy(Monitor *mon)
     QDECREF(mon->outbuf);
     qemu_mutex_destroy(&mon->out_lock);
 }
+
+char *qmp_rdpy(int64_t addr, int64_t val, Error **errp)
+{
+    char *output = NULL;
+    int l = Base64encode_len(val);
+    uint8_t *bufbin = (uint8_t *)g_malloc0 (val*4);
+    char *bufbase64 = (char *)g_malloc0 (l*2);
+    MemTxResult result;
+
+    result = cpu_physical_memory_read(addr, bufbin, val);
+
+    if (MEMTX_OK == result) {
+        Base64encode(bufbase64, (const char *)bufbin, val);
+        output = bufbase64;
+    } else {
+        error_setg(errp, "rd-error: %d addr: %lx %s %s", result, addr, (result & MEMTX_ERROR) ? "MEMTX_ERROR" : "", (result & MEMTX_DECODE_ERROR) ? "MEMTX_DECODE_ERROR" : "" );
+    }
+
+    return output;
+}
+
+void qmp_wrpy(int64_t addr, int64_t val, const char *data, Error **errp)
+{
+    int l = Base64decode_len(data);
+    char *buf = (char *)g_malloc0 (l*2);
+    MemTxResult result;
+
+    Base64decode(buf, data);
+
+    if (val != l) {
+        error_setg(errp, "write-length %d differ from data-len %d", (int)val, (int)l);
+        goto out;
+    }
+
+    result = cpu_physical_memory_write(addr, buf, val);
+
+    if (MEMTX_OK != result) {
+        error_setg(errp, "wd-error: %d addr: %lx %s %s", result, addr, (result & MEMTX_ERROR) ? "MEMTX_ERROR" : "", (result & MEMTX_DECODE_ERROR) ? "MEMTX_DECODE_ERROR" : "" );
+    }
+
+    g_free(buf);
+
+out:
+    return;
+}
+
 
 char *qmp_human_monitor_command(const char *command_line, bool has_cpu_index,
                                 int64_t cpu_index, Error **errp)
@@ -1419,23 +1466,20 @@ static void hmp_memory_dump(Monitor *mon, const QDict *qdict)
     memory_dump(mon, count, format, size, addr, 0);
 }
 
-static void hmp_physical_memory_dump(Monitor *mon, const QDict *qdict)
+static void hmp_physical_memory_read(Monitor *mon, const QDict *qdict)
 {
-    int count = qdict_get_int(qdict, "count");
-    int format = qdict_get_int(qdict, "format");
-    int size = qdict_get_int(qdict, "size");
+    uint8_t *buf;
     hwaddr addr = qdict_get_int(qdict, "addr");
-
-    memory_dump(mon, count, format, size, addr, 1);
+    int size = qdict_get_int(qdict, "size");
+    buf = (uint8_t *)g_malloc0 (size*2);
+    cpu_physical_memory_read(addr, buf, size);
 }
 
 static void hmp_physical_memory_write(Monitor *mon, const QDict *qdict)
 {
-    int count = qdict_get_int(qdict, "count"); (void)count;
-    int format = qdict_get_int(qdict, "format"); (void)format;
-    int size = qdict_get_int(qdict, "size");
     hwaddr addr = qdict_get_int(qdict, "addr");
-    int data = qdict_get_int(qdict, "data");
+    int size = qdict_get_int(qdict, "size");
+    const char *data = qdict_get_str(qdict, "data");
 
     uint8_t buf[16];
     memcpy(buf, &data, sizeof(int)); // little endian

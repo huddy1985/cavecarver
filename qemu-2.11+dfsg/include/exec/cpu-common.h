@@ -5,6 +5,9 @@
 
 #ifndef CONFIG_USER_ONLY
 #include "exec/hwaddr.h"
+#include "exec/memattrs.h"
+#else
+typedef uint32_t MemTxResult;
 #endif
 
 #include "qemu/bswap.h"
@@ -75,17 +78,17 @@ bool qemu_ram_is_shared(RAMBlock *rb);
 size_t qemu_ram_pagesize(RAMBlock *block);
 size_t qemu_ram_pagesize_largest(void);
 
-void cpu_physical_memory_rw(hwaddr addr, uint8_t *buf,
+MemTxResult cpu_physical_memory_rw(hwaddr addr, uint8_t *buf,
                             int len, int is_write);
-static inline void cpu_physical_memory_read(hwaddr addr,
+static inline MemTxResult cpu_physical_memory_read(hwaddr addr,
                                             void *buf, int len)
 {
-    cpu_physical_memory_rw(addr, buf, len, 0);
+    return cpu_physical_memory_rw(addr, buf, len, 0);
 }
-static inline void cpu_physical_memory_write(hwaddr addr,
+static inline MemTxResult cpu_physical_memory_write(hwaddr addr,
                                              const void *buf, int len)
 {
-    cpu_physical_memory_rw(addr, (void *)buf, len, 1);
+    return cpu_physical_memory_rw(addr, (void *)buf, len, 1);
 }
 void *cpu_physical_memory_map(hwaddr addr,
                               hwaddr *plen,

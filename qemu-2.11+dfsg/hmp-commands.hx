@@ -460,9 +460,9 @@ ETEXI
 
     {
         .name       = "wp",
-        .args_type  = "fmt:/,addr:l,data:l",
-        .params     = "/fmt addr data",
-        .help       = "virtual memory write starting at 'addr'",
+        .args_type  = "addr:l,size:i,data:s",
+        .params     = "addr size data",
+        .help       = "physical memory write starting at 'addr'",
         .cmd        = hmp_physical_memory_write,
     },
 
@@ -473,17 +473,17 @@ Physical memory write starting at @var{addr}.
 ETEXI
 
     {
-        .name       = "xp",
-        .args_type  = "fmt:/,addr:l",
-        .params     = "/fmt addr",
-        .help       = "physical memory dump starting at 'addr'",
-        .cmd        = hmp_physical_memory_dump,
+        .name       = "rp",
+        .args_type  = "addr:l,size:i",
+        .params     = "addr size",
+        .help       = "physical memory read 'addr'",
+        .cmd        = hmp_physical_memory_read,
     },
 
 STEXI
 @item xp /@var{fmt} @var{addr}
-@findex xp
-Physical memory dump starting at @var{addr}.
+@findex rp
+Physical memory read starting at @var{addr}.
 
 @var{fmt} is a format which tells the command how to format the
 data. Its syntax is: @option{/@{count@}@{format@}@{size@}}

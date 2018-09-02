@@ -57,6 +57,7 @@
     # Commands allowed to return a non-dictionary:
     'returns-whitelist': [
         'human-monitor-command',
+        'rdpy',
         'qom-get',
         'query-migrate-cache-size',
         'query-tpm-models',
@@ -1135,6 +1136,29 @@
 ##
 { 'command': 'pmemsave',
   'data': {'val': 'int', 'size': 'int', 'filename': 'str'} }
+
+##
+# @wrpy:
+#
+# write "1234"
+# -> { "execute": "wrpy", "arguments": { "val": 0x10, "size" : "4", "data" : "MTIzNA==" } }
+# <- { "return": {} }
+##
+
+{ 'command': 'wrpy',
+  'data': {'val': 'int', 'size': 'int', 'data': 'str'} }
+
+##
+# @rdpy:
+# read "1234"
+# -> { "execute": "rdpy", "arguments": { "val": 0x10, "size" : "4" } }
+# <- { "return": "MTIzNA==" }
+##
+
+{ 'command': 'rdpy',
+  'data': {'val': 'int', 'size': 'int'},
+  'returns': 'str'
+}
 
 ##
 # @cont:
