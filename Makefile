@@ -69,7 +69,7 @@ qemu-build-prepare:
 	cd qemu-2.11+dfsg; dpkg-buildpackage -b -us -uc
 
 qemu-build:
-	cd qemu-2.11+dfsg/qemu-build; make V=1
+	cd qemu-2.11+dfsg/qemu-build; make V=1 -j8
 
 qemu-config:
 	mkdir -p qemu-2.11+dfsg/qemu-build;

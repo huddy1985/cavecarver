@@ -36,7 +36,7 @@ typedef struct tdINTERNAL_HANDLE {
 
 HANDLE LocalAlloc(DWORD uFlags, SIZE_T uBytes)
 {
-    HANDLE h = (HANDLE)malloc(uBytes);
+    HANDLE h = malloc(uBytes);
     if(h && (uFlags & LMEM_ZEROINIT)) {
         memset(h, 0, uBytes);
     }
@@ -66,9 +66,9 @@ HANDLE CreateThread(
     PINTERNAL_HANDLE ph;
     pthread_t thread;
     int status;
-    status = pthread_create(&thread, NULL, (void*(*)(void*))lpStartAddress, lpParameter);
+    status = pthread_create(&thread, NULL, lpStartAddress, lpParameter);
     if(status) { return NULL;}
-    ph = (PINTERNAL_HANDLE)malloc(sizeof(INTERNAL_HANDLE));
+    ph = malloc(sizeof(INTERNAL_HANDLE));
     ph->type = INTERNAL_HANDLE_TYPE_THREAD;
     ph->handle = (HANDLE)thread;
     return ph;

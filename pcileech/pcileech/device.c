@@ -8,6 +8,7 @@
 #include "statistics.h"
 #include "device3380.h"
 #include "devicefile.h"
+#include "deviceqemu.h"
 #include "devicefpga.h"
 #include "device605_tcp.h"
 #include "devicetmd.h"
@@ -125,7 +126,7 @@ DWORD DeviceReadDMAEx(_Inout_ PPCILEECH_CONTEXT ctx, _In_ QWORD qwAddr, _Out_ PB
     // read memory (with strange workaround for 1-page reads...)
     if(cb != 0x1000) {
         cbDataRead = DeviceReadDMAEx_DoWork(ctx, qwAddr, pb, cb, pPageStat, (DWORD)ctx->cfg->qwMaxSizeDmaIo, flags);
-    } else { 
+    } else {
         // why is this working ??? if not here console is screwed up... (threading issue?)
         cbDataRead = DeviceReadDMAEx_DoWork(ctx, qwAddr, pbWorkaround, 0x1000, pPageStat, (DWORD)ctx->cfg->qwMaxSizeDmaIo, flags);
         memcpy(pb, pbWorkaround, 0x1000);
@@ -207,6 +208,9 @@ BOOL DeviceOpen(_Inout_ PPCILEECH_CONTEXT ctx)
     }
     if(PCILEECH_DEVICE_FILE == ctx->cfg->dev.tp) {
         result = DeviceFile_Open(ctx);
+    }
+    if(PCILEECH_DEVICE_QEMU == ctx->cfg->dev.tp) {
+        result = DeviceQemu_Open(ctx);
     }
     if(PCILEECH_DEVICE_TOTALMELTDOWN == ctx->cfg->dev.tp) {
         result = DeviceTMD_Open(ctx);
