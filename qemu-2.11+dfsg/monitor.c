@@ -606,6 +606,7 @@ char *qmp_rdpy(int64_t addr, int64_t val, Error **errp)
     } else {
         error_setg(errp, "rd-error: %d addr: %lx %s %s", result, addr, (result & MEMTX_ERROR) ? "MEMTX_ERROR" : "", (result & MEMTX_DECODE_ERROR) ? "MEMTX_DECODE_ERROR" : "" );
     }
+    g_free(bufbin);
 
     return output;
 }

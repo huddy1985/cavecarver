@@ -1141,7 +1141,7 @@
 # @wrpy:
 #
 # write "1234"
-# -> { "execute": "wrpy", "arguments": { "val": 0x10, "size" : "4", "data" : "MTIzNA==" } }
+# -> { "execute": "wrpy", "arguments": { "addr": 0x10, "size" : "4", "data" : "MTIzNA==" } }
 # <- { "return": {} }
 ##
 
@@ -1151,7 +1151,7 @@
 ##
 # @rdpy:
 # read "1234"
-# -> { "execute": "rdpy", "arguments": { "val": 0x10, "size" : "4" } }
+# -> { "execute": "rdpy", "arguments": { "addr": 0x10, "size" : "4" } }
 # <- { "return": "MTIzNA==" }
 ##
 
