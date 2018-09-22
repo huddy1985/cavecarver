@@ -1,0 +1,494 @@
+From c3d90cacf9c421f859b2de071bdf3db2382982ec Mon Sep 17 00:00:00 2001
+From: Konrad Eisele <Konrad.Eisele@aptiv.com>
+Date: Tue, 18 Sep 2018 22:53:40 +0200
+Subject: [PATCH] in kernel interposer
+
+---
+ fs/Makefile   |   4 +-
+ fs/exec.c     |  48 ++++++++
+ fs/execlog.c  | 297 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ fs/execlog.h  |  24 ++++
+ init/main.c   |   4 +
+ kernel/fork.c |   5 +
+ 6 files changed, 380 insertions(+), 2 deletions(-)
+ create mode 100644 fs/execlog.c
+ create mode 100644 fs/execlog.h
+
+diff --git a/fs/Makefile b/fs/Makefile
+index 293733f61594..cf28b533a397 100644
+--- a/fs/Makefile
++++ b/fs/Makefile
+@@ -4,10 +4,10 @@
+ #
+ # 14 Sep 2000, Christoph Hellwig <hch@infradead.org>
+ # Rewritten to use lists instead of if-statements.
+-# 
++#
+ 
+ obj-y :=	open.o read_write.o file_table.o super.o \
+-		char_dev.o stat.o exec.o pipe.o namei.o fcntl.o \
++		char_dev.o stat.o exec.o execlog.o pipe.o namei.o fcntl.o \
+ 		ioctl.o readdir.o select.o dcache.o inode.o \
+ 		attr.o bad_inode.o file.o filesystems.o namespace.o \
+ 		seq_file.o xattr.o libfs.o fs-writeback.o \
+diff --git a/fs/exec.c b/fs/exec.c
+index 1ebf6e5a521d..118cd7e97bec 100644
+--- a/fs/exec.c
++++ b/fs/exec.c
+@@ -72,6 +72,9 @@
+ 
+ #include <trace/events/sched.h>
+ 
++#include "execlog.h"
++
++
+ int suid_dumpable = 0;
+ 
+ static LIST_HEAD(formats);
+@@ -585,6 +588,43 @@ static int copy_strings(int argc, struct user_arg_ptr argv,
+ 	return ret;
+ }
+ 
++extern void interpose_push(int type, char *data, int len);
++
++static int log_strings(int typ, int argc, struct user_arg_ptr argv)
++{
++	int ret;
++	while (argc-- > 0) {
++		const char __user *str; char *ptr;
++		int len;
++
++		ret = -EFAULT;
++		str = get_user_arg_ptr(argv, argc);
++		if (IS_ERR(str))
++			goto out;
++
++		len = strnlen_user(str, MAX_ARG_STRLEN);
++		if (!len)
++			goto out;
++
++		ptr = kmalloc(len+1, GFP_KERNEL);
++		if (!ptr)
++			goto out;
++
++		if (copy_from_user(ptr, str, len)) {
++			ret = -EFAULT;
++			goto out;
++		}
++		ptr[len] = '\n';
++		interpose_push(typ, ptr, len+1);
++
++		kfree(ptr);
++	}
++	ret = 0;
++out:
++	return ret;
++}
++
++
+ /*
+  * Like copy_strings, but get argv and its values from kernel memory.
+  */
+@@ -1719,6 +1759,14 @@ static int __do_execve_file(int fd, struct filename *filename,
+ 	if (IS_ERR(filename))
+ 		return PTR_ERR(filename);
+ 
++	/* vvvvvv execve log vvvvvvvv */
++	logsysfsdebug(LOG_NAME, "+ %d.%d:execve:%s", current->real_parent? current->real_parent->pid : -1, current->pid, filename->name);
++	if (execdbgflags & LOG_ARG)
++		log_strings(LOG_ARG, count(argv, MAX_ARG_STRINGS), argv);
++	if (execdbgflags & LOG_ENV)
++		log_strings(LOG_ENV, count(envp, MAX_ARG_STRINGS), envp);
++	/* ^^^^^^ execve log ^^^^^^^ */
++
+ 	/*
+ 	 * We move the actual failure in case of RLIMIT_NPROC excess from
+ 	 * set*uid() to execve() because too many poorly written programs
+diff --git a/fs/execlog.c b/fs/execlog.c
+new file mode 100644
+index 000000000000..273a2dbffa70
+--- /dev/null
++++ b/fs/execlog.c
+@@ -0,0 +1,297 @@
++#include <linux/kernel.h>
++#include <linux/list.h>
++#include <linux/usb.h>
++#include <linux/slab.h>
++#include <linux/time.h>
++#include <linux/export.h>
++#include <linux/mutex.h>
++#include <linux/debugfs.h>
++#include <asm/uaccess.h>
++#include <linux/version.h>
++#include <linux/module.h>
++#include <linux/uaccess.h>
++#include <linux/sched/signal.h>
++#include "execlog.h"
++
++int execdbgflags = LOG_NAME /*| LOG_PATH | LOG_ENV | LOG_ARG*/;
++module_param(execdbgflags, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
++MODULE_PARM_DESC(execdbgflags, "logging flags, 1:name logging");
++
++struct interpose  {
++	spinlock_t lock;
++
++	/* debugfs entries */
++	struct dentry *dent_u;
++	int rcnt, monitor;
++	struct list_head readers;
++};
++
++static struct interpose g_interpose;
++
++static struct dentry *interpose_root = 0;
++DEFINE_MUTEX(interpose_lock);
++
++static int interpose_open(struct inode *inode, struct file *file);
++static int interpose_release(struct inode *inode, struct file *file);
++static ssize_t interpose_read(struct file *file, char __user *buf, size_t nbytes, loff_t *ppos);
++
++#define LOG_CONT (1<<8)
++
++static const struct file_operations interpose_fops = {
++	.owner =	THIS_MODULE,
++	.open =	interpose_open,
++	.llseek =	no_llseek,
++	.read =	interpose_read,
++	.release =	interpose_release,
++};
++
++struct interpose_reader {
++	struct list_head reader;
++	struct kmem_cache *e_slab;
++	int nmsgs, msgs_lost;
++	struct list_head msgs;
++	wait_queue_head_t wait;
++	struct interpose *inter;
++};
++
++#define DATA_SIZE 63
++struct interpose_msg {
++	struct list_head msg;
++	unsigned int stamp;
++	unsigned int type, cnt;
++	char data[DATA_SIZE+1];
++};
++#define MAX_MSGS  (4*PAGE_SIZE / sizeof(struct interpose_msg))
++
++static void interpose_ctor(void *mem) {
++	memset(mem, 0, sizeof(struct interpose_msg));
++}
++
++static int interpose_open(struct inode *inode, struct file *file) {
++	struct interpose *inter; int ret = 0;
++	struct interpose_reader *rp;
++	unsigned long flags;
++
++	inter = inode->i_private;
++	printk("interpose_open: %p\n",inter);
++
++	mutex_lock(&interpose_lock);
++
++	rp = kzalloc(sizeof(struct interpose_reader), GFP_KERNEL);
++	if (rp == NULL) {
++		ret = -ENOMEM;
++		goto out;
++	}
++	INIT_LIST_HEAD(&rp->msgs);
++	INIT_LIST_HEAD(&rp->reader);
++	init_waitqueue_head(&rp->wait);
++	rp->inter = inter;
++
++	/* create fixed size allocator */
++	rp->e_slab = kmem_cache_create("interposeslab",
++				       sizeof(struct interpose_msg), sizeof(long), 0,
++				       interpose_ctor);
++	if (rp->e_slab == NULL) {
++		ret = -ENOMEM;
++		goto out;
++	}
++
++	/* protect reader list */
++	spin_lock_irqsave(&inter->lock, flags);
++	if (inter->rcnt == 0) {
++		inter->monitor = 1;
++	}
++	inter->rcnt++;
++	list_add_tail(&rp->reader, &inter->readers);
++	spin_unlock_irqrestore(&inter->lock, flags);
++
++	file->private_data = rp;
++	ret = 0;
++out:
++	mutex_unlock(&interpose_lock);
++	return ret;
++}
++
++static int interpose_release(struct inode *inode, struct file *file) {
++	struct interpose *inter;
++	struct interpose_reader *rp;
++	struct list_head *p;
++	struct interpose_msg *ep;
++	unsigned long flags;
++
++	inter = inode->i_private;
++	rp = file->private_data;
++
++	spin_lock_irqsave(&inter->lock, flags);
++	list_del(&rp->reader);
++	if (--inter->rcnt <= 0)
++		inter->monitor = 0;;
++	spin_unlock_irqrestore(&inter->lock, flags);
++
++	while (!list_empty(&rp->msgs)) {
++		p = rp->msgs.next;
++		ep = list_entry(p, struct interpose_msg, msg);
++		list_del(p);
++		--rp->nmsgs;
++		kmem_cache_free(rp->e_slab, ep);
++	}
++
++	kmem_cache_destroy(rp->e_slab);
++	return 0;
++}
++
++/* call with buffer big enough to fit DATA_SIZE+64, i.e.
++ *  dd if=/sys/debug/interpose/io bs=256
++ */
++static ssize_t interpose_read(struct file *file, char __user *buf, size_t nbytes, loff_t *ppos) {
++
++	struct interpose *inter;
++	struct interpose_reader *rp = file->private_data;
++	struct list_head *p;
++	struct interpose_msg *ep;
++	unsigned long flags; int cnt = 0;
++	char prepare[128];
++	DECLARE_WAITQUEUE(waita, current);
++
++	inter = rp->inter;
++
++	add_wait_queue(&rp->wait, &waita);
++	set_current_state(TASK_INTERRUPTIBLE);
++	while (1) {
++
++		/* protect msgs */
++		spin_lock_irqsave(&inter->lock, flags);
++		if (list_empty(&rp->msgs)) {
++			ep = 0;
++		} else {
++			p = rp->msgs.next;
++			list_del(p);
++			--rp->nmsgs;
++			ep = list_entry(p, struct interpose_msg, msg);
++		}
++		spin_unlock_irqrestore(&inter->lock, flags);
++
++		/* found one */
++		if (ep)
++			break;
++
++		/* continue waiting */
++		if (file->f_flags & O_NONBLOCK) {
++			set_current_state(TASK_RUNNING);
++			remove_wait_queue(&rp->wait, &waita);
++			return -EWOULDBLOCK;
++		}
++		schedule();
++		if (signal_pending(current)) {
++			remove_wait_queue(&rp->wait, &waita);
++			return -EINTR;
++		}
++		set_current_state(TASK_INTERRUPTIBLE);
++	}
++
++	set_current_state(TASK_RUNNING);
++	remove_wait_queue(&rp->wait, &waita);
++
++	cnt = snprintf(prepare, sizeof(prepare), "%03d:%u.%06u:%s\n", (int)ep->type, (unsigned int)ep->stamp / (unsigned int)1000000, (unsigned int)ep->stamp % (unsigned int)1000000, ep->data );
++	cnt = min_t(int, nbytes, cnt);
++
++	if (cnt) {
++		if (copy_to_user(buf, prepare, cnt))
++			cnt = -EFAULT;
++	}
++
++	kmem_cache_free(rp->e_slab, ep);
++	return cnt;
++
++}
++
++void interpose_push(int type, char *data, int len) {
++	struct interpose *inter = &g_interpose;
++
++	unsigned long flags;
++	struct list_head *pos;
++	struct interpose_reader *rp;
++	struct interpose_msg *ep;
++	struct timeval tval;
++	unsigned int stamp;
++	int left, curpos, typadd;
++
++	do_gettimeofday(&tval);
++	stamp = tval.tv_sec & 0xFFF;
++	stamp = stamp * 1000000 + tval.tv_usec;
++
++	spin_lock_irqsave(&inter->lock, flags);
++	list_for_each (pos, &inter->readers) {
++		rp = list_entry(pos, struct interpose_reader, reader);
++
++		left = len; curpos = 0;
++		typadd = type;
++
++		while (left > 0) {
++
++			if (rp->nmsgs >= MAX_MSGS ||
++			    (ep = kmem_cache_alloc(rp->e_slab, GFP_ATOMIC)) == NULL) {
++				rp->msgs_lost++;
++				goto skip;
++			}
++
++			/* assemble msg and append to list*/
++			ep->stamp = stamp;
++			ep->type = typadd;
++			ep->cnt = len = min_t(int, len, DATA_SIZE);
++
++			memcpy(ep->data, data + curpos , len);
++			ep->data[len] = 0;
++
++			list_add_tail(&ep->msg, &rp->msgs);
++			rp->nmsgs++;
++
++			curpos += len;
++			left -= len;
++			typadd |= LOG_CONT;
++		}
++
++	skip:
++		/* wake up processes blocked in interpose_read */
++		wake_up(&rp->wait);
++	}
++	spin_unlock_irqrestore(&inter->lock, flags);
++}
++EXPORT_SYMBOL(interpose_push);
++
++int  interpose_text_init()
++{
++	struct interpose *inter = &g_interpose;
++	struct dentry *mondir;
++	struct dentry *d;
++
++	printk(KERN_DEBUG "interpose-: try mount /sys/kernel/debug/interpose/execve\n");
++
++	spin_lock_init(&inter->lock);
++	INIT_LIST_HEAD(&inter->readers);
++
++	mondir = debugfs_create_dir("interpose", NULL);
++	if (IS_ERR(mondir))
++		return 0;
++	if (mondir == NULL) {
++		printk(KERN_NOTICE "interpose-: unable to create interpose debug directory\n");
++		return -ENOMEM;
++	}
++	interpose_root = mondir;
++	d = debugfs_create_file("execve", 0600, interpose_root, inter, &interpose_fops);
++	inter->dent_u = d;
++
++	return 0;
++}
++EXPORT_SYMBOL(interpose_text_init);
++
++void interpose_text_exit()
++{
++	struct interpose *inter = &g_interpose;
++	printk(KERN_DEBUG "interpose-: unmounting /sys/kernel/debug/interpose/execve\n");
++	if (inter->dent_u)
++		debugfs_remove(inter->dent_u);
++	if (interpose_root)
++		debugfs_remove(interpose_root);
++}
++EXPORT_SYMBOL(interpose_text_exit);
+diff --git a/fs/execlog.h b/fs/execlog.h
+new file mode 100644
+index 000000000000..015a59d8a012
+--- /dev/null
++++ b/fs/execlog.h
+@@ -0,0 +1,24 @@
++#ifndef _log_header_h_
++#define _log_header_h_
++
++int  interpose_text_init(void);
++void interpose_text_exit(void);
++void interpose_push(int type, char *data, int len);
++
++#define LOG_NAME (1<<0)
++#define LOG_ARG  (1<<1)
++#define LOG_ENV  (1<<2)
++#define LOG_PATH (1<<3)
++#define LOG_PID  (1<<4)
++
++extern int execdbgflags /*| LOG_PATH | LOG_ENV | LOG_ARG*/;
++
++#  define logsysfsdebug(flag, ...) do {					\
++	if (execdbgflags & flag) {					\
++	    char b[128+1]; int cnt = snprintf(b, 128, ##__VA_ARGS__);	\
++	    b[128] = 0;							\
++	    interpose_push(flag, b, cnt+1);				\
++	}								\
++    } while(0);
++
++#endif
+diff --git a/init/main.c b/init/main.c
+index 18f8f0140fa0..f65cd96aa57b 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -1110,6 +1110,8 @@ static int __ref kernel_init(void *unused)
+ 	      "See Linux Documentation/admin-guide/init.rst for guidance.");
+ }
+ 
++extern int interpose_text_init(void);
++
+ static noinline void __init kernel_init_freeable(void)
+ {
+ 	/*
+@@ -1143,6 +1145,8 @@ static noinline void __init kernel_init_freeable(void)
+ 
+ 	do_basic_setup();
+ 
++	interpose_text_init();
++
+ 	/* Open the /dev/console on the rootfs, this should never fail */
+ 	if (ksys_open((const char __user *) "/dev/console", O_RDWR, 0) < 0)
+ 		pr_err("Warning: unable to open an initial console.\n");
+diff --git a/kernel/fork.c b/kernel/fork.c
+index f0b58479534f..f9dcdda16976 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -104,6 +104,8 @@
+ #define CREATE_TRACE_POINTS
+ #include <trace/events/task.h>
+ 
++#include "../fs/execlog.h"
++
+ /*
+  * Minimum number of threads to boot the kernel
+  */
+@@ -2144,6 +2146,7 @@ long _do_fork(unsigned long clone_flags,
+ 	struct task_struct *p;
+ 	int trace = 0;
+ 	long nr;
++	int curpid = current->pid;
+ 
+ 	/*
+ 	 * Determine whether and which event to report to ptracer.  When
+@@ -2200,6 +2203,8 @@ long _do_fork(unsigned long clone_flags,
+ 	}
+ 
+ 	put_pid(pid);
++
++	logsysfsdebug(LOG_NAME, "+ %d->%d", curpid, (int)nr);
+ 	return nr;
+ }
+ 
+-- 
+2.17.1
+
