@@ -2,7 +2,8 @@ import re, sys, argparse, os
 
 entry_re = re.compile("([0-9]+)\.([0-9]+):([0-9]+\.[0-9]+):(.*)");
 fork_re = re.compile("fork ([0-9]+)->([0-9]+)");
-free_re = re.compile("free ([0-9]+))");
+free_re = re.compile("free ([0-9]+)");
+execve_re = re.compile("\+ ([0-9]+)\.([0-9]+):execve:(.*)");
 
 LOG_NAME = (1<<0)
 LOG_ARG  = (1<<1)
@@ -15,7 +16,7 @@ LOG_CONT = (1<<8)
 class pidobj(object):
     def __init__(self,ppid,pid,idx):
         if not (ppid is None):
-            self.childs.append(self)
+            ppid.childs.append(self)
         self.idx = idx
         self._ppid = ppid
         self._pid = pid
@@ -46,18 +47,20 @@ class pidobj(object):
         self.outputted = True
 
     def getFileName(self):
+        if self.execve is None:
+            return "undef"
         return self.execve.replace("/","_")
     def getFilePath(self):
-        p = ("06%d_%d" %(self.idx, self.getFileName()))
+        p = ("06%d_%s" %(self.idx, self.getFileName()))
         if not (self._ppid is None):
             p = os.path.join(self._ppid.getFilePath(),p)
         return p
     def setcwd(self,p):
         self.cwd = p
-    def execve(self,n):
+    def setexecve(self,n):
         self.execve = n
     def addarg(self,e):
-        self.args.append(e)
+        self.args.insert(0, e)
     def addenv(self,e):
         self.env.append(e)
 
@@ -76,7 +79,10 @@ class pidobj(object):
     def writecmd(self,f):
         if not (self.cwd is None):
             f.write("cd "+ self.cwd+"\n")
-        f.write(self.execve + " " +  " ".join(["'{}'".format(a) for a in self.args])+"\n")
+        n = "true"
+        if not (self.execve is None):
+            n = self.execve
+        f.write(n + " " +  " ".join(["'{}'".format(a) for a in self.args[1:]])+"\n")
 
 class process(object):
     def __init__(self,i,opt):
@@ -108,7 +114,7 @@ class process(object):
         if pid in self.pid:
             self.pid[pid] = None
         o = pidobj(pobj, pid, self.idx)
-        self.pids.appened(o)
+        self.pids.append(o)
         self.pid[pid] = o
         self.idx += 1#
 
@@ -145,7 +151,11 @@ class process(object):
         pid = self.getpid(pid)
         self._prev = None
         if (typ == LOG_NAME and pid):
-            pid.execve(rest)
+            m = execve_re.match(rest)
+            if (m):
+                pid.setexecve(m.group(3))
+            else:
+                pid.setexecve(rest)
         elif (typ == LOG_ARG and pid):
             pid.addarg(rest)
         elif (typ == LOG_ENV and pid):
@@ -159,10 +169,10 @@ class process(object):
             m1 = free_re.match(rest);
             if (m0):
                 (ppid, pid) = m0.groups()
-                self.openpid(ppid, pid)
+                self.openpid(int(ppid), int(pid))
             elif(m1):
-                (pid) = m1.groups()
-                self.closepid(pid)
+                (pid,) = m1.groups()
+                self.closepid(int(pid))
 
 
 
