@@ -1,4 +1,4 @@
-From ab2a40667e29431e6c09ae7364bdbda863cc31f1 Mon Sep 17 00:00:00 2001
+From 63cbed6e5d91f0fbe1c03d5daa37e3265e9f7f0d Mon Sep 17 00:00:00 2001
 From: Konrad Eisele <eiselekd@gmail.com>
 Date: Tue, 18 Sep 2018 22:53:40 +0200
 Subject: [PATCH] in kernel interposer
@@ -6,12 +6,12 @@ Subject: [PATCH] in kernel interposer
 ---
  fs/Makefile   |   4 +-
  fs/d_path.c   |  53 ++++++++-
- fs/exec.c     |  64 +++++++++++
- fs/execlog.c  | 302 ++++++++++++++++++++++++++++++++++++++++++++++++++
- fs/execlog.h  |  25 +++++
+ fs/exec.c     |  65 +++++++++++
+ fs/execlog.c  | 308 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ fs/execlog.h  |  25 ++++
  init/main.c   |   4 +
- kernel/fork.c |   8 ++
- 7 files changed, 457 insertions(+), 3 deletions(-)
+ kernel/fork.c |  12 +-
+ 7 files changed, 467 insertions(+), 4 deletions(-)
  create mode 100644 fs/execlog.c
  create mode 100644 fs/execlog.h
 
@@ -101,7 +101,7 @@ index e8fce6b1174f..71abfcdc0191 100644
 +}
 +EXPORT_SYMBOL(kernel_getcwd);
 diff --git a/fs/exec.c b/fs/exec.c
-index 1ebf6e5a521d..1211268e2639 100644
+index 1ebf6e5a521d..a7c71381221b 100644
 --- a/fs/exec.c
 +++ b/fs/exec.c
 @@ -62,6 +62,13 @@
@@ -180,11 +180,12 @@ index 1ebf6e5a521d..1211268e2639 100644
  static int __do_execve_file(int fd, struct filename *filename,
  			    struct user_arg_ptr argv,
  			    struct user_arg_ptr envp,
-@@ -1719,6 +1767,22 @@ static int __do_execve_file(int fd, struct filename *filename,
+@@ -1719,6 +1767,23 @@ static int __do_execve_file(int fd, struct filename *filename,
  	if (IS_ERR(filename))
  		return PTR_ERR(filename);
  
 +	/* vvvvvv execve log vvvvvvvv */
++	logsysfsdebug(LOG_NAME, "start execve:%d.%d:%s", current->real_parent? current->real_parent->pid : -1, current->pid, filename->name);
 +	if (execdbgflags & LOG_PATH) {
 +		int size = 0; char *p = 0;
 +		size = kernel_getcwd(&p);
@@ -197,7 +198,7 @@ index 1ebf6e5a521d..1211268e2639 100644
 +		log_strings(LOG_ARG, count(argv, MAX_ARG_STRINGS), argv);
 +	if (execdbgflags & LOG_ENV)
 +		log_strings(LOG_ENV, count(envp, MAX_ARG_STRINGS), envp);
-+	logsysfsdebug(LOG_NAME, "+ %d.%d:execve:%s", current->real_parent? current->real_parent->pid : -1, current->pid, filename->name);
++	logsysfsdebug(LOG_NAME, "stop execve:%d.%d:%s", current->real_parent? current->real_parent->pid : -1, current->pid, filename->name);
 +	/* ^^^^^^ execve log ^^^^^^^ */
 +
  	/*
@@ -205,10 +206,10 @@ index 1ebf6e5a521d..1211268e2639 100644
  	 * set*uid() to execve() because too many poorly written programs
 diff --git a/fs/execlog.c b/fs/execlog.c
 new file mode 100644
-index 000000000000..71aecd000d1f
+index 000000000000..090e75c7c932
 --- /dev/null
 +++ b/fs/execlog.c
-@@ -0,0 +1,302 @@
+@@ -0,0 +1,308 @@
 +#include <linux/kernel.h>
 +#include <linux/list.h>
 +#include <linux/usb.h>
@@ -227,6 +228,11 @@ index 000000000000..71aecd000d1f
 +int execdbgflags = LOG_NAME | LOG_FORK /*| LOG_PATH | LOG_ENV | LOG_ARG*/;
 +module_param(execdbgflags, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 +MODULE_PARM_DESC(execdbgflags, "logging flags, 1:name logging");
++
++long execoverrun = 0;
++module_param(execoverrun, long, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
++MODULE_PARM_DESC(execoverrun, "overrun count");
++
 +
 +struct interpose  {
 +	spinlock_t lock;
@@ -447,6 +453,7 @@ index 000000000000..71aecd000d1f
 +			if (rp->nmsgs >= MAX_MSGS ||
 +			    (ep = kmem_cache_alloc(rp->e_slab, GFP_ATOMIC)) == NULL) {
 +				rp->msgs_lost++;
++				execoverrun++;
 +				goto skip;
 +			}
 +
@@ -565,7 +572,7 @@ index 18f8f0140fa0..f65cd96aa57b 100644
  	if (ksys_open((const char __user *) "/dev/console", O_RDWR, 0) < 0)
  		pr_err("Warning: unable to open an initial console.\n");
 diff --git a/kernel/fork.c b/kernel/fork.c
-index f0b58479534f..98e063b74022 100644
+index f0b58479534f..d36bc9a2cc66 100644
 --- a/kernel/fork.c
 +++ b/kernel/fork.c
 @@ -104,6 +104,8 @@
@@ -595,14 +602,25 @@ index f0b58479534f..98e063b74022 100644
  
  	/*
  	 * Determine whether and which event to report to ptracer.  When
-@@ -2200,6 +2206,8 @@ long _do_fork(unsigned long clone_flags,
+@@ -2200,6 +2206,7 @@ long _do_fork(unsigned long clone_flags,
  	}
  
  	put_pid(pid);
 +
-+	logsysfsdebug(LOG_FORK, "fork %d->%d", curpid, (int)nr);
  	return nr;
  }
+ 
+@@ -2270,7 +2277,10 @@ SYSCALL_DEFINE5(clone, unsigned long, clone_flags, unsigned long, newsp,
+ 		 unsigned long, tls)
+ #endif
+ {
+-	return _do_fork(clone_flags, newsp, 0, parent_tidptr, child_tidptr, tls);
++	long ret = 0;
++	ret = _do_fork(clone_flags, newsp, 0, parent_tidptr, child_tidptr, tls);
++	logsysfsdebug(LOG_FORK, "fork %d->%d", (int)current->pid, (int)ret);
++	return ret;
+ }
+ #endif
  
 -- 
 2.17.1
