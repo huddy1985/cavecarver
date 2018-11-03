@@ -5,6 +5,8 @@
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
+int qverbose = 0;
+
 extern "C" {
 #include "deviceqemu.h"
 #include "util.h"
@@ -275,6 +277,30 @@ int qemu_read(PDEVICE_CONTEXT_QEMU ctx, QWORD addr, DWORD len, PBYTE n,  DWORD &
     return 0;
 }
 
+int qemu_write(PDEVICE_CONTEXT_QEMU ctx, QWORD addr, DWORD len, PBYTE p) {
+    char b[256];
+    json result; int r;
+    std::vector<json> events;
+
+    int l = Base64encode_len(len);
+    char *b0 = (char *)LocalAlloc(LMEM_ZEROINIT, l*2);
+    char *b1 = (char *)LocalAlloc(LMEM_ZEROINIT, l*2*2);
+    memset(b0,0,l*2);
+    Base64encode(b0, (const char *)p, len);
+
+    sprintf(b1, "{'execute':'wrpy','arguments':{'addr':%lld,'size':%d,'data':'%s'}}", addr, len, b0);
+    if (r = qemu_send_cmd(ctx, b1, result, events)) {
+	return r;
+    }
+    if (result.find("return") == result.end()) {
+	return 1;
+    }
+
+    LocalFree(b0);
+    LocalFree(b1);
+    return 0;
+}
+
 int qemu_negotiate(PDEVICE_CONTEXT_QEMU ctx) {
     json result;
     std::vector<json> events;
@@ -294,14 +320,17 @@ VOID DeviceQemu_ReadScatterDMA(_Inout_ PPCILEECH_CONTEXT ctx, _Inout_ PPDMA_IO_S
     PDEVICE_CONTEXT_QEMU ctxFile = (PDEVICE_CONTEXT_QEMU)ctx->hDevice;
     DWORD i, cbToRead, c = 0;
     PDMA_IO_SCATTER_HEADER pDMA;
-    printf("[r] \n");
+
+    if (qverbose)
+	printf("[r] \n");
     for(i = 0; i < cpDMAs; i++) {
 	int result;
 	pDMA = ppDMAs[i];
 
 	result = qemu_read(ctxFile, pDMA->qwA, pDMA->cbMax, pDMA->pb, pDMA->cb);
 
-	printf("[r] [%016llx:%08x] => %08x\n", pDMA->qwA, pDMA->cbMax, pDMA->cb);
+	if (qverbose)
+	    printf("[r] [%016llx:%08x] => %08x\n", pDMA->qwA, pDMA->cbMax, pDMA->cb);
 
 	if(ctx->cfg->fVerboseExtraTlp) {
             Util_PrintHexAscii(pDMA->pb, pDMA->cb, 0);
@@ -328,6 +357,13 @@ VOID DeviceQemu_ProbeDMA(_Inout_ PPCILEECH_CONTEXT ctx, _In_ QWORD qwAddr, _In_ 
 	    pbResultMap[i] = 1;
 	}
     }
+}
+
+BOOL DeviceQemu_WriteDMA(_Inout_ PPCILEECH_CONTEXT ctx, _In_ QWORD qwA, _In_ PBYTE pb, _In_ DWORD cb)
+{
+    PDEVICE_CONTEXT_QEMU ctxFile = (PDEVICE_CONTEXT_QEMU)ctx->hDevice;
+
+    int l = qemu_write(ctxFile, qwA, cb, pb);
 }
 
 VOID DeviceQemu_Close(_Inout_ PPCILEECH_CONTEXT ctx)
@@ -358,6 +394,7 @@ BOOL DeviceQemu_Open(_Inout_ PPCILEECH_CONTEXT ctx)
     ctx->cfg->dev.fPartialPageReadSupported = TRUE;
     ctx->cfg->dev.pfnClose = DeviceQemu_Close;
     ctx->cfg->dev.pfnProbeDMA = DeviceQemu_ProbeDMA;
+    ctx->cfg->dev.pfnWriteDMA = DeviceQemu_WriteDMA;
     ctx->cfg->dev.pfnReadScatterDMA = DeviceQemu_ReadScatterDMA;
     if(ctx->cfg->fVerbose) {
         printf("DEVICE: Successfully opened qemu\n");

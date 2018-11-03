@@ -84,9 +84,12 @@ qemu-qmp-shell-server:
 	qemu-2.11+dfsg/qemu-build/x86_64-softmmu/qemu-system-x86_64 -qmp unix:./qmp-sock,server -monitor stdio
 
 qemu-qmp-shell:
-	qemu-2.11+dfsg/scripts/qmp/qmp-shell ./qmp-sock
+	qemu-2.11+dfsg/scripts/qmp/qmp-shell /tmp/qmp-sock
 
 
 
 pci:
 	cd pcileech/pcileech; make
+
+pci-probe:
+	pcileech/pcileech/pcileech probe  -device qemu -device-addr 127.0.0.1 -device-port 4444

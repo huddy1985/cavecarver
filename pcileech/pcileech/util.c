@@ -356,7 +356,7 @@ BOOL Util_ParseHexFileBuiltin(_In_ LPSTR sz, _Out_ PBYTE pb, _In_ DWORD cb, _Out
     // 1: try load default
     if(0 == memcmp("DEFAULT", sz, 7)) {
         for(i = 0; i < (sizeof(SHELLCODE_DEFAULT) / sizeof(SHELLCODE_DEFAULT_STRUCT)); i++) {
-            if((0 == strcmp(SHELLCODE_DEFAULT[i].sz, sz)) && (SHELLCODE_DEFAULT[i].cb <= cb)) {       
+            if((0 == strcmp(SHELLCODE_DEFAULT[i].sz, sz)) && (SHELLCODE_DEFAULT[i].cb <= cb)) {
                 memcpy(pb, SHELLCODE_DEFAULT[i].pb, SHELLCODE_DEFAULT[i].cb);
                 *pcb = SHELLCODE_DEFAULT[i].cb;
                 return TRUE;
@@ -426,6 +426,7 @@ BOOL Util_LoadSignatures(_In_ LPSTR szSignatureName, _In_ LPSTR szFileExtension,
     if(_strnicmp(szSignatureFile + strlen(szSignatureFile) - strlen(szFileExtension), szFileExtension, MAX_PATH)) { // add extension if missing
         strcpy_s(szSignatureFile + strlen(szSignatureFile), MAX_PATH - strlen(szSignatureFile), szFileExtension);
     }
+    printf("Trying to open %s\n", szSignatureFile);
     if(fopen_s(&pFile, szSignatureFile, "rb") || !pFile) { return FALSE; }
     memset(pbFile, 0, 0x10000);
     cbFile = (DWORD)fread(pbFile, 1, 0x10000, pFile);
@@ -533,7 +534,7 @@ QWORD Util_GetNumeric(_In_ LPSTR sz)
     }
 }
 
-VOID Util_CreateSignatureLinuxGeneric(_In_ QWORD paBase, 
+VOID Util_CreateSignatureLinuxGeneric(_In_ QWORD paBase,
     _In_ DWORD paSzKallsyms, _In_ QWORD vaSzKallsyms, _In_ QWORD vaFnKallsyms,
     _In_ DWORD paSzFnHijack, _In_ QWORD vaSzFnHijack, _In_ QWORD vaFnHijack, _Out_ PSIGNATURE pSignature)
 {
